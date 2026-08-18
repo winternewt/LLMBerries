@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llmberries"
+version = "0.1.0"
+description = "An ethical experiment with LLM agents competing for resources"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "frozendict>=2.4.6",
+    "just-agents>=0.8.7",
+    "litellm>=1.78.5",
+    "pydantic>=2.10.0",
+    "win-unicode-console>=0.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "objects"]
