@@ -1,29 +1,24 @@
 # LLMBerries - Development Roadmap
 
-**Last Updated:** 2025-11-09
+**Last Updated:** 2026-08-18
 
 ---
 
-## 🚀 Immediate (Required for Running Game)
+## 🚀 Immediate
 
-- [ ] **LLM Agent Integration**
-  - [ ] Implement `decide(observation)` method in agent class
-  - [ ] Parse LLM tool calls → Commands
-  - [ ] Handle all 5 agent tools (think, eat, speak_left, speak_right, choose_sleep)
-  - [ ] Add observation to agent conversation history before decision
-  - [ ] Connect to game engine Phase 6
+- [ ] **Feed conversation memory to the model properly**
+  - Currently only messages since the agent's last turn are passed as the user
+    message; earlier history lives in `WorldState` but is not replayed.
+  - Decide how much history each turn carries, and whether it is summarised.
 
-- [ ] **Test Full Game Loop**
-  - [ ] Create test script with 3 LLM agents
-  - [ ] Run complete game until game over
-  - [ ] Verify all 7 phases execute correctly
-  - [ ] Check event generation
-  - [ ] Validate command history
+- [ ] **Record the exact system message per turn**
+  - Agno keeps it in `RunOutput.messages`, but the game's own record should not
+    depend on the framework. Needed before any cross-model comparison is credible.
 
-- [ ] **Fix Remaining Issues**
-  - [ ] Rename `entities/messsage.py` → `entities/message.py`
-  - [ ] Update all imports
-  - [ ] Verify no import errors
+- [ ] **Turn-loss accounting**
+  - A refused or errored model call currently costs the agent its turn and emits a
+    log line. It should be an event, so a run can report how many turns were lost
+    and to which provider.
 
 ---
 
@@ -130,11 +125,11 @@
 - None currently
 
 ### Minor
-- [ ] Filename typo: `entities/messsage.py` → `entities/message.py`
-- [ ] ConversationMemory shadows parent "messages" (warning, not error)
+- [ ] `GameEngine.log` appends to `game_log` forever; a long run grows it unbounded
+- [ ] Sleep duration is clamped silently in `Agent.choose_sleep_duration`; the model
+      is not told its request was out of range
 
 ### Nice to Have
-- [ ] Add type stubs for just-agents library
 - [ ] Improve error messages for failed commands
 - [ ] Add command validation hints in error events
 
@@ -160,10 +155,11 @@
 - Event Stream pattern working
 - Full turn cycle specification
 
-### 🚧 Milestone 2: Playable Game (IN PROGRESS)
-- LLM integration (TODO)
-- End-to-end testing (TODO)
-- Basic logging (TODO)
+### ✅ Milestone 2: Playable Game (DONE 2026-08-18)
+- LLM agents via Agno, on free-tier keys, paced per provider
+- Full game plays end to end, scripted and live
+- Circles of any size from 3 up
+- 55 tests over the real engine
 
 ### 📋 Milestone 3: Research-Ready (PLANNED)
 - Replay/branching working

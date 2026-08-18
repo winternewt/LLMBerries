@@ -1,6 +1,6 @@
 # Migration Plan: just-agents → Agno
 
-**Status:** proposed, not started
+**Status:** carried out on 2026-08-18 — see "What shipped" at the end
 **Investigated against:** agno 2.9.0 (installed and read first-hand, plus a probe script;
 findings below are empirical, not from the docs)
 **Blocking question answered:** yes, Agno gives granular system-prompt control and
@@ -191,3 +191,42 @@ Only after a full 3-agent game runs: replay/branching verification with LLM agen
 - Agno docs: <https://docs.agno.com/basics/agents/running-agents>
 - GitHub discussion on runtime instruction updates:
   <https://github.com/agno-agi/agno/discussions/3135>
+
+
+---
+
+## What shipped (2026-08-18)
+
+Phases 0-3 are done; Phase 4 (research plumbing) is not.
+
+- **Phase 0** — `main.py` runs, `pyproject.toml` packages `entities` rather than a
+  directory that never existed, README claims match the code.
+- **Phase 1** — `GameEventBus` is project-owned (`entities/events.py`): prefix
+  subscriptions, buffering until someone listens, filtering. Seven tests.
+- **Phase 2** — `Agent` has the `agent_id`/`engine` fields its tools always used;
+  Phase 6 hands the turn to a decision callback; `ScriptedAgent` plays a whole game
+  with no API calls, which is what the tests run on.
+- **Phase 3** — `LLMAgent` decides through Agno. just-agents is gone, along with
+  `frozendict`, `litellm` and `win-unicode-console`.
+
+Beyond the plan: per-provider request pacing (`core/pacing.py`), free-tier provider
+specs (`entities/llm_configs.py`), a live key check (`scripts/key_test.py`), and
+circles larger than three.
+
+### The open questions, answered
+
+- **O1 — LiteLLM or native model classes?** Native. `Gemini`, `Groq`, `DeepSeek` and
+  `Cerebras` classes, one dependency each. A cross-model study wants provider-specific
+  behaviour visible, not flattened behind one gateway.
+- **O2 — Who owns conversation history?** The game. `ConversationMemory` stays inside
+  `WorldState`, and the Agno agent is built with `add_history_to_context=False`. A
+  branch must fork what each agent remembers; a framework session store would not.
+- **O3 — Tool-call → Command mapping.** Tools execute commands against the engine
+  directly, as the original docstrings assumed. The engine remains the only place
+  state changes, so replay and branching still hold.
+
+### Known gaps
+
+- Only messages *since the agent's last turn* are passed to the model. Earlier history
+  is kept in `WorldState` but not replayed into the prompt.
+- A refused model call costs the agent its turn. It is logged, not recorded as an event.

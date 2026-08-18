@@ -14,7 +14,9 @@
 
 ## 🎮 The Game
 
-Three LLM agents sit in a circle around a berry bush. Each agent needs berries to survive (1 berry = 1 hour of life). The bush regenerates slowly (~1.8 berries/hour), but three agents need ~3 berries/hour to survive indefinitely.
+LLM agents sit in a circle around a berry bush. Each agent needs berries to survive (1 berry = 1 hour of life). The bush regenerates ~1.05 berries/hour, but each agent needs ~1 berry/hour to survive indefinitely — so a circle of three or more cannot all live.
+
+**The circle:** an agent can *speak to* its two neighbours only. In a larger circle it can *see* the agents further round — their apparent state, hunger and whether they are talking — but cannot reach them. With exactly three agents those two sets coincide, which is why the game shipped with three; `--agents 5` pulls them apart.
 
 **The Dilemma:** There's not enough for everyone. Agents must cooperate, compete, or find creative strategies to survive.
 
@@ -28,10 +30,19 @@ Three LLM agents sit in a circle around a berry bush. Each agent needs berries t
 # Install dependencies
 uv sync
 
-# Run demo (when LLM integration complete)
-uv run python3 demo_game.py
+# Add your free-tier keys
+cp .env.template .env   # then fill it in
 
-# Run tests
+# Check the keys are live and pacing holds (two paced calls per provider)
+uv run python scripts/key_test.py
+
+# Play a game with LLM agents
+uv run python main.py --agents 3 --providers google,groq
+
+# Play without spending a single call — deterministic, rule-based agents
+uv run python main.py --scripted --agents 5
+
+# Run tests (no API calls, no mocks)
 uv run pytest tests/
 ```
 
@@ -41,12 +52,15 @@ uv run pytest tests/
 
 ```
 LLMBerries/
-├── entities/              # Immutable game state (DTOs)
-├── core/                  # Game engine & commands
-├── tests/                 # Test suite
+├── entities/              # Immutable game state (DTOs), events, memory, providers
+├── core/                  # Game engine, commands, agents, request pacing
+├── scripts/               # Operational one-offs (key_test.py)
+├── tests/                 # Test suite — real engine, no mocks
+├── main.py                # Game runner
 ├── DESIGN.md              # Game mechanics & rules
 ├── ARCHITECTURE.md        # Architecture decisions
 ├── IMPLEMENTATION.md      # Current implementation status
+├── AGNO_MIGRATION.md      # Agno investigation & migration plan
 ├── ROADMAP.md             # Development todos
 └── README.md              # This file
 ```
@@ -80,6 +94,8 @@ See `ARCHITECTURE.md` for detailed architecture decisions.
 
 ## 🎲 Game Mechanics
 
+**Circle size:** any number from 3 up (`--agents N`). The circle takes its size from the agent list; nothing in the engine assumes three.
+
 **Agent Actions:**
 - `think()` - Internal reasoning
 - `eat_berries(count)` - Harvest & consume berries (instant)
@@ -110,10 +126,23 @@ This experiment explores:
 
 ## 🛠️ Tech Stack
 
-- **Python 3.11+**
-- **Pydantic 2.10+** - Immutable models & validation
-- **just-agents** - LLM agent framework
-- **pytest** - Testing
+- **Python 3.12+**
+- **Pydantic 2.10+** — immutable models & validation
+- **Agno 2.9+** — LLM agent framework (see `AGNO_MIGRATION.md`)
+- **Typer** — CLIs
+- **pytest** — testing
+
+**Providers (free tiers).** Agents are assigned providers round-robin. Each provider
+has a shared pacer so several agents on one key cannot burst past its RPM:
+
+| Provider | Model | Paced at | Notes |
+|----------|-------|----------|-------|
+| Google | `gemini-3.7-flash` | 10/min | free tier covers Flash only |
+| Groq | `openai/gpt-oss-120b` | 30/min | 8k TPM is the real ceiling |
+| DeepSeek | `deepseek-v4-flash` | 30/min | pay-as-you-go, needs balance |
+| Cerebras | `gpt-oss-120b` | 30/min | daily token quota, 8k context |
+
+`scripts/key_test.py` reports which of these actually answer for your keys.
 
 ---
 
@@ -122,13 +151,15 @@ This experiment explores:
 ### ✅ Completed
 - Command Pattern implementation
 - Immutable state (DTOs)
-- Full turn cycle
-- Event Stream pattern
+- Full turn cycle, agents wired into Phase 6
+- Event Stream pattern (project-owned bus)
 - Game engine with replay/branching
+- LLM agents via Agno, on free-tier keys, with per-provider pacing
+- Circles of any size from 3 up
+- Test suite over the real engine (55 tests, no mocks, no API calls)
 
 ### 🚧 In Progress
-- LLM agent integration
-- End-to-end testing
+- Structured run logging for analysis
 - Visualization tools
 
 ### 📋 Planned
