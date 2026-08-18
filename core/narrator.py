@@ -21,8 +21,9 @@ from typing import List, Optional, Sequence, Tuple
 from agno.agent import Agent as AgnoAgent
 from agno.run.base import RunStatus
 
+from core.keydrum import LEDGER, is_spent
 from entities.chronicle import GameChronicle, TurnRecord
-from entities.llm_configs import ProviderSpec, build_model, get_provider_pacer
+from entities.llm_configs import ProviderSpec, build_model, get_drum_for, get_provider_pacer
 
 logger = logging.getLogger(__name__)
 
@@ -211,9 +212,24 @@ class Narrator:
             telemetry=False,
         )
 
+    def _account_for(self, output: object) -> None:
+        metrics = getattr(output, "metrics", None)
+        total = getattr(metrics, "total_tokens", None) if metrics is not None else None
+        LEDGER.record(self.provider.name, int(total or 0))
+
     def _tell(self, prompt: str) -> Optional[str]:
         get_provider_pacer(self.provider).acquire()
         output = self._agent.run(prompt)
+        self._account_for(output)
+
+        if output.status == RunStatus.error and is_spent(str(output.content or "")):
+            # Telling a story is one long call; losing it to a spent key would lose the
+            # whole passage, so the drum turns and the passage is told on the next key.
+            if get_drum_for(self.provider).rotate(reason="narrating") is not None:
+                self._agent.model = build_model(self.provider)
+                get_provider_pacer(self.provider).acquire()
+                output = self._agent.run(prompt)
+                self._account_for(output)
 
         if output.status == RunStatus.error:
             logger.error("narrator call failed: %s", (output.content or "")[:200])

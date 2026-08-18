@@ -26,7 +26,15 @@ from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
 from core.game_engine import GameEngine
 from core.narrator import Narrator, render_transcript
 from core.zombie import ZombieAgent, ZombieFlavour, parse_flavours
-from entities.llm_configs import LLM_SET, ProviderSpec, get_provider_by_name
+from core.keydrum import LEDGER
+from entities.llm_configs import (
+    LLM_SET,
+    ProviderSpec,
+    get_drum_for,
+    get_provider_by_name,
+    pick_narrator,
+    remaining_budget,
+)
 
 logger = logging.getLogger("llmberries")
 
@@ -46,6 +54,12 @@ def agent_names(count: int) -> List[str]:
 
 
 def resolve_providers(names: Optional[str]) -> List[ProviderSpec]:
+    """Providers to seat, in the order given.
+
+    The order is the assignment: the point of the study is which model is in which
+    seat, so `--providers groq,google` puts a different model on either side of every
+    thinking agent, and the record says which was which.
+    """
     if names is None:
         return list(LLM_SET)
     return [get_provider_by_name(name.strip()) for name in names.split(",") if name.strip()]
@@ -96,6 +110,17 @@ def build_agents(
                 )
             )
     return seats
+
+
+def report_spend() -> None:
+    """What this run actually cost each provider."""
+    spend = LEDGER.summary()
+    if not spend:
+        return
+    typer.echo("")
+    typer.echo("  Spent this run:")
+    for provider, calls, tokens in spend:
+        typer.echo(f"    {provider}: {calls} calls, {tokens:,} tokens")
 
 
 def report_losses(record) -> None:
@@ -210,6 +235,25 @@ def play(
         for seat in seats
     )
     typer.echo(f"Seated {agents} — {described}")
+    thinking = [seat for seat in seats if isinstance(seat, LLMAgent)]
+    if thinking:
+        distinct = {seat.provider.name for seat in thinking}
+        if len(distinct) == 1 and len(thinking) > 1:
+            typer.echo(
+                f"  Note: all {len(thinking)} thinking seats are {distinct.pop()}. Nothing "
+                "here compares one model against another; pass --providers a,b to mix them."
+            )
+        for spec in sorted({seat.provider.name: seat.provider for seat in thinking}.values(),
+                           key=lambda spec: spec.name):
+            drum = get_drum_for(spec)
+            budget = remaining_budget(spec)
+            headroom = f"{budget:,} tokens left today" if budget is not None else "budget not stated"
+            held_by = ", ".join(
+                seat.name for seat in thinking if seat.provider.name == spec.name
+            )
+            typer.echo(
+                f"  {spec.name}: {spec.model_id}, {drum.chambers} key(s), {headroom} — {held_by}"
+            )
 
     hours = 0
     while hours < max_hours and engine.run_turn_cycle():
@@ -221,6 +265,7 @@ def play(
     report(engine)
     record = chronicler.seal()
     report_losses(record)
+    report_spend()
 
     if chronicle_out is not None:
         save_chronicle(record, chronicle_out)
@@ -232,7 +277,10 @@ def play(
         typer.echo(f"Transcript: {transcript}")
 
     if story is not None:
-        teller = get_provider_by_name(narrator) if narrator else provider_specs[0]
+        # Whoever has the most left. The narrator reads the whole transcript in one
+        # go, so taking it out of the budget that just played the game is how a run
+        # ends with a story it cannot afford to tell.
+        teller = get_provider_by_name(narrator) if narrator else pick_narrator()
         if not record.has_reasoning():
             typer.echo(
                 f"Note: no provider in this run exposed its reasoning, so the story is "

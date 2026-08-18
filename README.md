@@ -236,8 +236,17 @@ This experiment explores:
 - **Typer** — CLIs
 - **pytest** — testing
 
-**Providers (free tiers).** Agents are assigned providers round-robin. Each provider
-has a shared pacer so several agents on one key cannot burst past its RPM:
+**Providers (free tiers).** Which model sits in which seat is the experiment: `--providers
+groq,google` assigns them round-robin in that order, so every thinking agent has a
+different model on at least one side, and the chronicle records the provider and model id
+for every turn. Each provider has a shared pacer, so several agents on one key cannot
+burst past its RPM.
+
+**Several keys per provider.** Comma-separate them in one variable or add `_2`, `_3`
+variants. The drum rotates to the next key when one comes back spent (daily cap, balance,
+billing) — but never on a per-minute rate limit, which is the pacer's job. The narrator is
+then chosen as whoever has the most budget left, since it reads the whole transcript in
+one call and should not come out of what just played the game.
 
 | Provider | Model | Paced at | Notes |
 |----------|-------|----------|-------|

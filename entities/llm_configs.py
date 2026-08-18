@@ -12,7 +12,6 @@ numbers recorded here.
 """
 
 import logging
-import os
 import random
 from typing import Callable, Dict, Optional, Tuple
 
@@ -23,6 +22,7 @@ from agno.models.google import Gemini
 from agno.models.groq import Groq
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.keydrum import LEDGER, KeyDrum, get_drum
 from core.pacing import RateLimiter, get_pacer
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,10 @@ class ProviderSpec(BaseModel):
     max_context: Optional[int] = Field(
         default=None, description="Free-tier context cap where the provider imposes one"
     )
+    daily_token_budget: Optional[int] = Field(
+        default=None,
+        description="Tokens per key per day where the provider states one; None means not stated",
+    )
     notes: str = Field(default="", description="Anything a run needs to know about this tier")
 
 
@@ -70,7 +74,11 @@ GROQ = ProviderSpec(
     published_rpm=30,
     published_tpm=8000,
     published_rpd=1000,
-    notes="TPM is the binding limit here, not RPM: 8k tokens/min across all calls.",
+    daily_token_budget=200_000,
+    notes=(
+        "Two limits bite before RPM does: 8k tokens/minute, and 200k tokens/day per key. "
+        "A long game empties one key, which is what the drum is for."
+    ),
 )
 
 DEEPSEEK = ProviderSpec(
@@ -105,24 +113,70 @@ _BUILDERS: Dict[str, Callable[[str, str], Model]] = {
 }
 
 
-def get_api_key(spec: ProviderSpec) -> str:
-    """Read the provider's key from the environment, refusing an empty one.
+def get_drum_for(spec: ProviderSpec) -> KeyDrum:
+    """The rotating set of keys this provider has."""
+    return get_drum(spec.name, spec.env_var)
 
-    An empty string is treated as absent on purpose: that is how a test signals
-    "no credential" without a real key leaking in from a loaded `.env`.
+
+def get_api_key(spec: ProviderSpec) -> str:
+    """The key currently under the hammer.
+
+    An empty environment value is treated as absent on purpose: that is how a test
+    signals "no credential" without a real key leaking in from a loaded `.env`.
     """
-    key = os.environ.get(spec.env_var, "").strip()
-    if not key:
-        raise RuntimeError(
-            f"{spec.name}: no API key — set {spec.env_var} in .env (see .env.template)"
-        )
-    return key
+    return get_drum_for(spec).current()
 
 
 def build_model(spec: ProviderSpec) -> Model:
-    """Build the Agno model for this provider. Raises if its key is missing."""
+    """Build the Agno model for this provider, on its current key."""
     builder = _BUILDERS[spec.name]
     return builder(spec.model_id, get_api_key(spec))
+
+
+def remaining_budget(spec: ProviderSpec) -> Optional[int]:
+    """Tokens this provider can still spend today, as far as this session can tell.
+
+    `None` where the provider states no daily budget — unknown, which is not the same
+    as unlimited and must not be treated as either. Counts only what this process sent,
+    so it is an upper bound: an earlier run may already have spent some.
+    """
+    if spec.daily_token_budget is None:
+        return None
+    live_keys = len(get_drum_for(spec).live_keys())
+    return max(0, spec.daily_token_budget * live_keys - LEDGER.tokens(spec.name))
+
+
+# What a provider with no stated daily budget is worth when ranking. Unknown is not
+# unlimited: a fresh key with a published 200k beats it, and a stated budget worn down
+# below this loses to it. The number is never reported as a fact about the provider —
+# it exists only to order the choice.
+ASSUMED_UNKNOWN_BUDGET: int = 50_000
+
+
+def pick_narrator(candidates: Optional[Tuple[ProviderSpec, ...]] = None) -> ProviderSpec:
+    """Whichever provider has the most left to spend.
+
+    The narrator reads the whole transcript and is the most expensive call in a run, so
+    it should not come out of the budget that just played the game. Providers with a
+    stated budget are ranked by what remains; a provider with no stated budget ranks by
+    how little this session has already asked of it, since that is all that can honestly
+    be said about it.
+    """
+    pool = candidates or LLM_SET
+
+    def rank(spec: ProviderSpec) -> Tuple[int, float]:
+        drum = get_drum_for(spec)
+        if drum.is_exhausted():
+            return (0, 0.0)
+        remaining = remaining_budget(spec)
+        if remaining is None:
+            # Unknown budget: scored as a modest reserve, less whatever this session has
+            # already asked of it. So it loses to a fresh stated budget and wins against
+            # one that has been worn down.
+            return (1, float(ASSUMED_UNKNOWN_BUDGET - LEDGER.tokens(spec.name)))
+        return (1, float(remaining))
+
+    return max(pool, key=rank)
 
 
 def get_provider_pacer(spec: ProviderSpec) -> RateLimiter:

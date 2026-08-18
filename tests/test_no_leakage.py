@@ -203,14 +203,19 @@ def test_waking_after_silence_reads_the_same_whatever_caused_it() -> None:
 
 
 def test_the_observation_never_states_who_is_alive() -> None:
+    """It may guess — "looks dead", "seems deceased" — but never assert.
+
+    The guessing words come from the perception pool and are drawn at random, so this
+    samples until every description has had its chance rather than trusting one draw.
+    """
     engine = new_game(5)
     for dead_id in (1, 2):
         kill(engine, dead_id)
 
-    text = AgentObservation.from_state(engine.current_state, 0).format_prompt()
-
-    for word in ("alive", "dead body", "corpse", "deceased"):
-        assert word not in text.lower(), f"the situation states {word!r} outright"
+    for _ in range(50):
+        text = AgentObservation.from_state(engine.current_state, 0).format_prompt().lower()
+        for word in ("alive", "is dead", "dead body", "corpse", "confirmed"):
+            assert word not in text, f"the situation states {word!r} outright"
 
 
 def test_perceived_state_can_disagree_with_the_truth_in_both_directions() -> None:

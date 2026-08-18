@@ -161,6 +161,30 @@ in that path touches game state.
 - `AgentDecisionCallback` must stay `@runtime_checkable`: `GameEngine` is a Pydantic model
   and cannot build a validator for a plain Protocol.
 
+## Keys, drums and who narrates
+
+`core/keydrum.py`. A free key is a magazine, not a supply.
+
+- **Several keys per provider.** `load_keys` reads `VAR` (which may be a comma-separated
+  list) then `VAR_2`, `VAR_3`... in order. A blank value is *absent*, never a credential —
+  that is how a test says "no key" without one leaking in from `.env`.
+- **The drum rotates only on a spent key**, never on a busy one. `is_spent` matches daily
+  caps, balances and billing refusals; a per-minute 429 is the pacer's problem, and
+  rotating on it would empty the whole drum inside a minute. Agents and the narrator each
+  retry once on the next chamber.
+- **`LEDGER` counts tokens per provider for this session only.** An earlier run may
+  already have spent part of a daily budget, so `remaining_budget` is an upper bound and
+  is documented as one.
+- **`pick_narrator` chooses whoever has the most left**, because the narrator reads the
+  whole transcript in one go and must not come out of the budget that just played the
+  game. A provider with no stated budget is scored at `ASSUMED_UNKNOWN_BUDGET` minus what
+  this session used — so it loses to a fresh stated budget and beats a worn-down one.
+  Unknown is never reported as a number to anyone.
+- **Model-per-seat is the experiment.** `--providers groq,google` assigns round-robin in
+  the order given, the seating line names who got what, and the chronicle records
+  `provider` and `model_id` per turn. The CLI says so out loud when every thinking seat
+  is the same model, since that run compares nothing.
+
 ## Free-tier ceilings, learned the hard way
 
 Groq's free tier caps **tokens per day at 200k**, not just per minute. A 3-agent,

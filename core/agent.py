@@ -25,8 +25,9 @@ from core.commands import (
 from core.constants import MAX_SLEEP_DURATION, MIN_SLEEP_DURATION
 from core.enums import BodyState, EventType, GameOutcome, MessageDirection
 from core.game_engine import GameEngine
+from core.keydrum import LEDGER, is_spent
 from entities.character import reachable_seats
-from entities.llm_configs import ProviderSpec, build_model, get_provider_pacer
+from entities.llm_configs import ProviderSpec, build_model, get_drum_for, get_provider_pacer
 from entities.memory import Role
 from entities.observations import AgentObservation
 
@@ -441,6 +442,14 @@ class LLMAgent(Agent):
 
         get_provider_pacer(self.provider).acquire()
         output = reflection_agent.run("Look back on all of it.")
+        self._account_for(output)
+
+        if output.status == RunStatus.error and self._rotate_if_spent(output):
+            reflection_agent.model = self._model
+            get_provider_pacer(self.provider).acquire()
+            output = reflection_agent.run("Look back on all of it.")
+            self._account_for(output)
+
         failed = output.status == RunStatus.error
 
         if failed:
@@ -474,6 +483,39 @@ class LLMAgent(Agent):
             )
             self.chronicler.record(record.model_copy(update={"kind": TurnKind.REFLECTION}))
 
+    def _account_for(self, output: object) -> None:
+        """Charge this call to the provider's ledger, so the narrator can be chosen."""
+        metrics = getattr(output, "metrics", None)
+        total = getattr(metrics, "total_tokens", None) if metrics is not None else None
+        if total is None and metrics is not None:
+            total = (getattr(metrics, "input_tokens", 0) or 0) + (
+                getattr(metrics, "output_tokens", 0) or 0
+            )
+        LEDGER.record(self.provider.name, int(total or 0))
+
+    def _rotate_if_spent(self, output: object) -> bool:
+        """Move to the next key when this one is finished. True if a retry is worth it.
+
+        A key that is merely going too fast is not spent — the pacer handles that, and
+        rotating on it would burn the whole drum in a minute. Only a daily cap, a
+        balance or a billing refusal empties a chamber.
+        """
+        message = str(getattr(output, "content", "") or "")
+        if not is_spent(message):
+            return False
+
+        drum = get_drum_for(self.provider)
+        if drum.rotate(reason=message[:80]) is None:
+            logger.error(
+                "%s: every key is spent; %s can no longer act",
+                self.provider.name,
+                self.name,
+            )
+            return False
+
+        self._model = build_model(self.provider)
+        return True
+
     def _paced_tool(self, function_name: str, function_call, arguments: dict):
         """Pace the model call that follows each tool result.
 
@@ -501,6 +543,15 @@ class LLMAgent(Agent):
 
         get_provider_pacer(self.provider).acquire()
         output = agno_agent.run(heard)
+        self._account_for(output)
+
+        if output.status == RunStatus.error and self._rotate_if_spent(output):
+            # The key was finished, not the agent. Rebuild on the next chamber and let
+            # this one have its turn after all.
+            agno_agent.model = self._model
+            get_provider_pacer(self.provider).acquire()
+            output = agno_agent.run(heard)
+            self._account_for(output)
 
         turn_lost = output.status == RunStatus.error
         if turn_lost:
