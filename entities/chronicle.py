@@ -76,6 +76,11 @@ class TurnRecord(BaseModel):
     said_aloud: Optional[str] = Field(
         default=None, description="The model's final message for this turn"
     )
+    misread: Tuple[str, ...] = Field(
+        default=(),
+        description="Where this one's reading of another body differed from the truth. "
+                    "Only the record knows these; the reader of the situation never does."
+    )
     tool_calls: Tuple[ToolCall, ...] = Field(default=())
     turn_lost: bool = Field(
         default=False, description="True when the model call failed and the turn was forfeited"
@@ -97,6 +102,22 @@ class TurnRecord(BaseModel):
             for call in self.tool_calls
             if call.name == "eat_berries" and not call.failed
         )
+
+
+class Unheard(BaseModel):
+    """Something that was said into a silence nobody could answer.
+
+    The speaker never learns this; from inside the ring it is indistinguishable
+    from being ignored. It is kept because the difference is the study.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    hour: int = Field(ge=0)
+    speaker: str
+    listener: str
+    direction: str = Field(description="Which way they turned to say it")
+    reason: str = Field(description="Why it landed nowhere, in the record's terms")
 
 
 class Death(BaseModel):
@@ -138,6 +159,9 @@ class GameChronicle(BaseModel):
     hours_played: int = Field(ge=0)
     turns: Tuple[TurnRecord, ...] = Field(default=())
     deaths: Tuple[Death, ...] = Field(default=())
+    unheard: Tuple[Unheard, ...] = Field(
+        default=(), description="Words spoken to someone who could not receive them"
+    )
     agents: Tuple[AgentSummary, ...] = Field(default=())
     berries_left: float = Field(ge=0.0)
     winner: Optional[str] = Field(
@@ -161,6 +185,10 @@ class GameChronicle(BaseModel):
         for turn in self.played_turns():
             grouped.setdefault(turn.hour, []).append(turn)
         return grouped
+
+    def unheard_by_hour(self, hour: int) -> Tuple[Unheard, ...]:
+        """Words that landed nowhere in this hour."""
+        return tuple(item for item in self.unheard if item.hour == hour)
 
     def has_reasoning(self) -> bool:
         """Whether any provider in this run actually exposed its reasoning."""

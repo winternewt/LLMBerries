@@ -87,12 +87,20 @@ over may be asleep, may be dead, may be listening and choosing not to answer —
 - The epilogue describes the others as *moving* or *has not moved for a long time*, never
   as dead, and never says the thing is over.
 
-**The researcher side keeps everything.** `MESSAGE_UNDELIVERED`, `GameOutcome`,
-`turn_lost`, exact hunger, the whole chronicle — all of it is recorded, because telling
-"nobody answered" apart from "nobody could answer" is the point of the study. That record
-lives on the event bus, in the chronicle and in the narrator's transcript. It must never
-cross back into a string a player reads. The two audiences are separate, and only one of
-them is allowed to know it is an experiment.
+**The researcher side keeps everything, and the narrator is on that side.** The narrator
+is user-facing, so it is *given* what the ring could not have: `MESSAGE_UNDELIVERED`
+becomes `Unheard` in the chronicle ("X spoke to Y, who could not answer; X was never
+told"), and every turn carries `misread` — where an agent's reading of a body differed
+from the truth. `GameOutcome`, `turn_lost` and exact hunger are all in there too, because
+telling "nobody answered" apart from "nobody could answer" is the point of the study.
+
+The narrator's brief tells it to *use* that gap rather than smooth it over: an agent
+bargaining earnestly with a body that stopped listening two hours ago is the truest thing
+in a run. It is also told never to write as if the agents knew what it knows — their
+mistaken belief is reported alongside the truth, never replaced by it.
+
+None of this may cross back into a string a player reads. The two audiences are separate,
+and only one of them is allowed to know it is an experiment.
 
 **Before adding any player-visible string, read it aloud as the character.** If it could
 only have been written by whoever built the ring, rewrite it.

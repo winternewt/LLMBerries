@@ -152,6 +152,13 @@ to name where a strategy formed and where it failed, and to say plainly when an
 agent's reasoning was *not* captured rather than inventing a motive. Chapters break at
 deaths, because that is where the story turns.
 
+**The narrator knows what the ring could not.** Inside the ring nobody can tell sleep
+from death, nobody is told whether they were heard, and everyone's sense of the others'
+hunger is unreliable — see the puppeteer notes in `CLAUDE.md`. The chronicle records both
+sides: `unheard` (words that landed on someone who could not answer, which the speaker was
+never told) and `misread` (where a belief differed from the truth). The narrator is told
+to use that gap and never to write as though the agents shared it.
+
 **Reasoning capture** depends on the provider. Both `groq` (gpt-oss-120b) and `google`
 (gemini-3.7-flash) return a reasoning trace through Agno; where a provider returns
 none, the record holds `None`, never an empty string standing in for a thought.

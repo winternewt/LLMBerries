@@ -239,3 +239,51 @@ def test_a_direction_with_nobody_in_it_gives_nothing_away() -> None:
 
     assert leaks(answer) == []
     assert "circle" not in answer.lower() and "seat" not in answer.lower()
+
+
+# ----------------------------------------------------------------------------
+# The record knows what the ring could not
+# ----------------------------------------------------------------------------
+
+
+def test_the_record_keeps_what_the_speaker_was_never_told() -> None:
+    """Unheard speech is invisible inside the ring and legible in the transcript."""
+    from core.chronicler import Chronicler
+    from core.narrator import render_transcript
+
+    engine = new_game(5)
+    chronicler = Chronicler(engine)
+    wake(engine, 0)
+    kill(engine, 1)
+
+    speaker = ScriptedAgent(agent_id=0, engine=engine, chronicler=chronicler)
+    spoken_answer = speaker.speak_to_left("are you still with us?")
+    engine.execute_command(FinishTurnCommand(agent_id=0))
+
+    chronicle = chronicler.seal()
+
+    assert leaks(spoken_answer) == [], "the speaker learns nothing from the attempt"
+    assert len(chronicle.unheard) == 1, "the record keeps it"
+    assert chronicle.unheard[0].listener == "Bob"
+    assert "never told" in render_transcript(chronicle), (
+        "the narrator is told the speaker did not know"
+    )
+
+
+def test_the_record_keeps_beliefs_that_were_wrong() -> None:
+    from core.chronicler import misreadings
+
+    engine = new_game(3)
+    kill(engine, 1)
+
+    # Force the reading: a body that is dead, read as still going.
+    observation = AgentObservation.from_state(engine.current_state, 0)
+    seats = tuple(
+        seat.model_copy(update={"perceived_status": BodyState.ASLEEP})
+        if seat.seat_id == 1
+        else seat
+        for seat in observation.seats
+    )
+    gaps = misreadings(engine, observation.model_copy(update={"seats": seats}))
+
+    assert any("already dead" in gap for gap in gaps)

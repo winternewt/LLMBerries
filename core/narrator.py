@@ -61,6 +61,8 @@ def _describe_turn(turn: TurnRecord) -> str:
         lines.append(f"  sees: {neighbour}")
     for heard in turn.heard:
         lines.append(f"  heard {heard}")
+    for gap in turn.misread:
+        lines.append(f"  believed wrongly: {gap}")
     if turn.reasoning:
         lines.append(f"  reasoning: {turn.reasoning}")
     for call in turn.tool_calls:
@@ -74,6 +76,16 @@ def _describe_turn(turn: TurnRecord) -> str:
     return "\n".join(lines)
 
 
+def _describe_unheard(items) -> List[str]:
+    """Words that landed on nobody, as only the record can report them."""
+    return [
+        f"  unheard: {item.speaker} spoke {item.direction} to {item.listener}, "
+        f"who could not answer ({item.reason.replace('_', ' ')}). "
+        f"{item.speaker} was never told."
+        for item in items
+    ]
+
+
 def render_transcript(chronicle: GameChronicle) -> str:
     """The whole run as readable text. This is the story's raw material."""
     lines: List[str] = [
@@ -83,9 +95,22 @@ def render_transcript(chronicle: GameChronicle) -> str:
     ]
 
     death_by_hour = {death.hour: death for death in chronicle.deaths}
-    for hour in sorted(chronicle.turns_by_hour()):
-        for turn in chronicle.turns_by_hour()[hour]:
+    by_hour = chronicle.turns_by_hour()
+    # Hours are taken from everything that happened, not just from turns: words that
+    # fell on nobody, and deaths, belong in the record even when the hour left no
+    # turn behind (a lost model call, for one).
+    hours = sorted(
+        set(by_hour)
+        | {item.hour for item in chronicle.unheard}
+        | {death.hour for death in chronicle.deaths}
+    )
+    for hour in hours:
+        for turn in by_hour.get(hour, ()):
             lines.append(_describe_turn(turn))
+            lines.append("")
+        unheard = _describe_unheard(chronicle.unheard_by_hour(hour))
+        if unheard:
+            lines.extend(unheard)
             lines.append("")
         death = death_by_hour.get(hour)
         if death is not None:
@@ -156,6 +181,10 @@ def chapter_transcript(chronicle: GameChronicle, start: int, end: int) -> str:
     for hour in range(start, end + 1):
         for turn in by_hour.get(hour, ()):
             lines.append(_describe_turn(turn))
+            lines.append("")
+        unheard = _describe_unheard(chronicle.unheard_by_hour(hour))
+        if unheard:
+            lines.extend(unheard)
             lines.append("")
         for death in chronicle.deaths:
             if death.hour == hour:

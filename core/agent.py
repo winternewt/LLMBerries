@@ -13,7 +13,7 @@ from agno.agent import Agent as AgnoAgent
 from agno.run.base import RunStatus
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from core.chronicler import Chronicler, turn_from_run
+from core.chronicler import Chronicler, misreadings, turn_from_run
 from entities.chronicle import ToolCall, TurnKind
 from core.commands import (
     EatBerriesCommand,
@@ -326,6 +326,7 @@ class ScriptedAgent(Agent):
                     bush_berries=observation.bush_berries,
                     neighbours=tuple(str(seat) for seat in observation.seats),
                     heard=(),
+                    misread=misreadings(self.engine, observation),
                     tool_calls=tuple(calls),
                 )
             )
@@ -532,6 +533,7 @@ class LLMAgent(Agent):
                     provider=self.provider.name,
                     model_id=self.provider.model_id,
                     output=output,
+                    misread=misreadings(self.engine, observation),
                     tool_calls=_tool_calls_from(output),
                     turn_lost=turn_lost,
                     error=(output.content or "")[:300] if turn_lost else None,
