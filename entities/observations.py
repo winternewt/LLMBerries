@@ -75,8 +75,10 @@ def get_perceived_body_state(
     """
     # Dead perception: longer dead = more likely to be perceived as dead
     if actual_state == BodyState.DEAD:
+        # time_of_death is a float game time; the pool is sized in whole hours, and
+        # a negative gap (a death recorded this instant) must not shrink it below one.
         if time_of_death is not None:
-            hours_since_death = current_time - time_of_death
+            hours_since_death = max(0, int(current_time - time_of_death))
         else:
             hours_since_death = 0
         

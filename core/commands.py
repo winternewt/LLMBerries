@@ -34,10 +34,12 @@ class Command(BaseModel, ABC):
     """
     model_config = ConfigDict(frozen=True)
     
-    # Metadata
-    sequence_number: int = Field(..., ge=0, description="Global command index in history")
+    # Metadata. The engine stamps sequence_number and timestamp when it executes the
+    # command, so a caller that supplies them has them overwritten; they default rather
+    # than being required, to keep call sites from inventing placeholder values.
+    sequence_number: int = Field(default=0, ge=0, description="Global command index in history")
     agent_id: int = Field(..., ge=0, description="Agent executing this command")
-    timestamp: int = Field(..., ge=0, description="Game time when command issued")
+    timestamp: int = Field(default=0, ge=0, description="Game time when command issued")
     
     @abstractmethod
     def execute(self, state: WorldState) -> Tuple[WorldState, Tuple[GameEvent, ...]]:

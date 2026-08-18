@@ -10,6 +10,7 @@ Architecture:
 - No circular dependency with Agent module
 """
 
+import logging
 from typing import List, Tuple, Optional, Callable, Protocol, Dict, runtime_checkable
 from pydantic import BaseModel, Field, ConfigDict
 from entities.world import WorldState
@@ -28,6 +29,8 @@ from core.constants import (
     MAX_BERRIES, BUSH_REGENERATION_RATE
 )
 from core.enums import BodyType, BodyState, EventType
+
+logger = logging.getLogger(__name__)
 
 
 # Protocol for agent decision callback. runtime_checkable is required: the engine
@@ -235,9 +238,9 @@ class GameEngine(BaseModel):
         return engine
     
     def log(self, message: str) -> None:
-        """Add message to game log."""
+        """Record a line in the game log and emit it as a log record."""
         self.game_log.append(message)
-        print(message)
+        logger.info("%s", message)
     
     def execute_command(self, cmd: Command) -> Tuple[GameEvent, ...]:
         """
@@ -363,26 +366,24 @@ class GameEngine(BaseModel):
                 
                 # Generate observation
                 observation = AgentObservation.from_state(self.current_state, agent_id)
-                
-                # NOTE: This is where LLM agent would decide actions
-                # For now, this is just the engine infrastructure
-                # The actual agent decision-making will be plugged in here
-                
-                # The agent would call:
-                # - agent.decide(observation) → returns list of commands
-                # - engine.execute_command(cmd) for each command
-                # - until FinishTurnCommand is issued
-                
-                self.log(f"    Waiting for {agent.name} to act...")
                 self.log(f"    Observation: Hunger={observation.own_hunger:.1f}, Bush={observation.bush_berries}")
                 
-                # For now, we'll just have agents finish their turn immediately
-                # In real game, this would be agent.decide() loop
-                self.execute_command(FinishTurnCommand(
-                    agent_id=agent_id,
-                    sequence_number=0,
-                    timestamp=0.0
-                ))
+                # Hand the turn to whoever decides for this agent. A seat with no
+                # callback simply passes: the turn still ends below.
+                callback = self.decision_callbacks.get(agent_id)
+                if callback is None:
+                    self.log(f"    {agent.name} has no decision callback, passing")
+                else:
+                    callback(agent_id, observation, self)
+                
+                # End the turn if the agent did not. FinishTurnCommand is what
+                # dispatches pending messages, so it must run exactly once.
+                if self.current_state.agents[agent_id].body_state == BodyState.AWAKE:
+                    self.execute_command(FinishTurnCommand(
+                        agent_id=agent_id,
+                        sequence_number=0,
+                        timestamp=0.0
+                    ))
         
         # Phase 7: Time Advancement
         self.log("\nPhase 7: Time Advancement")
