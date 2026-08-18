@@ -53,7 +53,8 @@ def get_perceived_body_state(
     actual_state: BodyState,
     time_of_death: Optional[int],
     current_time: int,
-    has_spoken: bool
+    has_spoken: bool,
+    appears_crazy_chance: float = 0.0
 ) -> Tuple[BodyState, str]:
     """
     Get perceived body state with noise and descriptive language.
@@ -78,6 +79,11 @@ def get_perceived_body_state(
         - perceived_status: BodyState enum for game logic decisions
         - description_string: Descriptive text with "seems" or "looks" prefix
     """
+    # Some bodies simply read wrong. The roll comes first, and only for the living:
+    # a body that has stopped moving does not twitch, however odd it was in life.
+    if actual_state != BodyState.DEAD and random.random() < appears_crazy_chance:
+        return BodyState.CRAZY, random.choice(STATE_DESCRIPTIONS[BodyState.CRAZY])
+
     # Dead perception: longer dead = more likely to be perceived as dead
     if actual_state == BodyState.DEAD:
         # time_of_death is a float game time; the pool is sized in whole hours, and
@@ -223,6 +229,7 @@ class SeatObservation(BaseModel):
             time_of_death=other.time_of_death,
             current_time=state.world_time,
             has_spoken=other.has_spoken(),
+            appears_crazy_chance=other.appears_crazy_chance,
         )
 
         return cls(

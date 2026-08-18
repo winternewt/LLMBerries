@@ -110,6 +110,12 @@ class CharacterPhysicalState(BaseModel):
     total_berries_consumed: int = Field(default=0, ge=0, description="Total berries eaten")
     time_of_death: Optional[float] = Field(default=None, description="Game time when died")
 
+    # How often this body reads as unhinged to whoever is watching, whatever it is
+    # actually doing. A tell that belongs to the body, not to the moment.
+    appears_crazy_chance: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="Chance of being perceived as unhinged"
+    )
+
     # Communication (messages spoken this turn, not yet dispatched). One per direction:
     # an agent addresses each seat within reach at most once per turn.
     pending_messages: Tuple[PendingMessage, ...] = Field(

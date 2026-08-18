@@ -120,6 +120,36 @@ See `DESIGN.md` for complete game rules and mechanics.
 
 ---
 
+## 🧟 Zombies
+
+Bodies in the ring with nothing behind the eyes: no model, no key, a seeded RNG and a
+bank of canned noise. They make a whole game playable at zero cost, they are the control
+arm a thinking agent is measured against, and they are noise in the channel — a ring
+where two of five neighbours babble is a harder problem than a ring of five negotiators.
+
+```bash
+uv run python main.py --agents 5 --zombies pirate,ghurl        # three thinkers, two empty
+uv run python main.py --agents 5 --seed 3 \
+    --zombies town_crazy,pirate,gorlum,ghurl,deaf_hatter        # nobody home, no API calls
+```
+
+| Flavour | What comes out of it |
+|---------|---------------------|
+| `town_crazy` | Schizophasia — grammatical sentences built from unrelated parts: *"the man who owes me has already eaten your name. That's four times now."* |
+| `pirate` | Cussing and demands: *"Sink me, that bush is mine and ye know it or I'll have yer share and yer teeth."* |
+| `gorlum` | Mumbling to itself, third person, possessive: *"clever, so clever, they wants the berries, precious, they wants them all gollum."* |
+| `ghurl` | No words at all: *"a long wet clicking"*, *"nnnnnGH"* |
+| `deaf_hatter` | Perfectly reasonable remarks that answer nothing anybody said: *"The light is better on this side in the afternoon."* |
+
+Each flavour has its own appetite, chattiness and sleep habits, so they diverge in play
+as well as in speech. Behaviour is seeded — the same `--seed` replays the same game, and
+seats are mixed into the seed so a ring of identical flavours is not a chorus.
+
+**Something is visibly off about them.** A zombie reads as unhinged to whoever is
+watching about **70%** of the time, whatever it is actually doing — but not always, so
+the ring cannot simply sort the empty ones from the thinking ones by looking. A body that
+has stopped moving does not twitch, so the tell applies only while they are alive.
+
 ## 🏁 How a game ends
 
 | Outcome | When |

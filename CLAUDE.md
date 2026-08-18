@@ -105,6 +105,23 @@ and only one of them is allowed to know it is an experiment.
 **Before adding any player-visible string, read it aloud as the character.** If it could
 only have been written by whoever built the ring, rewrite it.
 
+## Zombies
+
+`core/zombie.py`: LLM-less bodies, five flavours, seeded RNG. They are the cheapest way
+to produce a full game, and the only way to produce one on demand — a long zombie run
+reliably yields deaths, corpse-talk and `unheard` entries with no key at all.
+
+- Their speech is player-visible, so the word banks obey the puppeteer notes. The leakage
+  test covers them (`tests/test_zombie.py` imports `leaks` from `test_no_leakage`).
+- `appears_crazy_chance` lives on `CharacterPhysicalState`, not on the agent: it is a tell
+  the *body* carries, so an observer sees it whoever is driving. Zombies set it to 0.7 at
+  construction, in `initial_state` as well as `current_state` — write only the live state
+  and the tell vanishes on `replay()`.
+- The tell is rolled before the normal perception pools and only for the living; a corpse
+  never reads as twitching.
+- They record turns with `provider="zombie:<flavour>"`, so the chronicle says which seats
+  were empty and the narrator can tell a babbler from a negotiator.
+
 ## The story layer
 
 `entities/chronicle.py` (frozen record) → `core/chronicler.py` (collects turns, hears

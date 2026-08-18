@@ -25,6 +25,7 @@ from core.chronicler import Chronicler, save_chronicle
 from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
 from core.game_engine import GameEngine
 from core.narrator import Narrator, render_transcript
+from core.zombie import ZombieAgent, ZombieFlavour, parse_flavours
 from entities.llm_configs import LLM_SET, ProviderSpec, get_provider_by_name
 
 logger = logging.getLogger("llmberries")
@@ -55,23 +56,46 @@ def build_agents(
     scripted: bool,
     providers: List[ProviderSpec],
     chronicler: Chronicler,
+    zombies: Optional[List[ZombieFlavour]] = None,
+    seed: Optional[int] = None,
 ) -> List[Agent]:
-    """One agent per seat. LLM agents take providers round-robin."""
+    """One agent per seat.
+
+    Zombies take the last seats, so the thinking ones sit together and each has at
+    least one babbling neighbour. Everyone else gets a provider round-robin, or is
+    scripted when no keys are being spent.
+    """
     count = engine.current_state.agent_count
-    if scripted:
-        return [
-            ScriptedAgent(agent_id=i, engine=engine, chronicler=chronicler)
-            for i in range(count)
-        ]
-    return [
-        LLMAgent(
-            agent_id=i,
-            engine=engine,
-            chronicler=chronicler,
-            provider=providers[i % len(providers)],
-        )
-        for i in range(count)
-    ]
+    zombies = zombies or []
+    if len(zombies) > count:
+        raise ValueError(f"{len(zombies)} zombies asked for but only {count} seats")
+
+    first_zombie_seat = count - len(zombies)
+    seats: List[Agent] = []
+
+    for seat_id in range(count):
+        if seat_id >= first_zombie_seat:
+            seats.append(
+                ZombieAgent(
+                    agent_id=seat_id,
+                    engine=engine,
+                    chronicler=chronicler,
+                    flavour=zombies[seat_id - first_zombie_seat],
+                    seed=seed if seed is not None else 0,
+                )
+            )
+        elif scripted:
+            seats.append(ScriptedAgent(agent_id=seat_id, engine=engine, chronicler=chronicler))
+        else:
+            seats.append(
+                LLMAgent(
+                    agent_id=seat_id,
+                    engine=engine,
+                    chronicler=chronicler,
+                    provider=providers[seat_id % len(providers)],
+                )
+            )
+    return seats
 
 
 def report_losses(record) -> None:
@@ -122,6 +146,11 @@ def report(engine: GameEngine) -> None:
 def play(
     agents: int = typer.Option(MIN_AGENT_COUNT, min=MIN_AGENT_COUNT, help="Agents in the circle"),
     scripted: bool = typer.Option(False, "--scripted", help="Rule-based agents, no API calls"),
+    zombies: Optional[str] = typer.Option(
+        None,
+        help="Comma-separated flavours to seat as zombies, last seats first: "
+             "town_crazy, pirate, gorlum, ghurl, deaf_hatter",
+    ),
     providers: Optional[str] = typer.Option(
         None, help="Comma-separated provider names; default is every configured provider"
     ),
@@ -153,23 +182,34 @@ def play(
         random.seed(seed)
 
     provider_specs = resolve_providers(providers)
+    flavours = parse_flavours(zombies) if zombies else []
     engine = GameEngine.create_new_game(agent_names=agent_names(agents))
     chronicler = Chronicler(engine)
     seats = build_agents(
-        engine, scripted=scripted, providers=provider_specs, chronicler=chronicler
+        engine,
+        scripted=scripted,
+        providers=provider_specs,
+        chronicler=chronicler,
+        zombies=flavours,
+        seed=seed,
     )
 
     for seat in seats:
         engine.decision_callbacks[seat.agent_id] = seat.decision_callback
         engine.reflection_callbacks[seat.agent_id] = seat.reflection_callback
 
-    if scripted:
-        typer.echo(f"Playing {agents} scripted agents (no API calls).")
-    else:
-        assignments = ", ".join(
-            f"{seat.name}={seat.provider.name}" for seat in seats if isinstance(seat, LLMAgent)
+    described = ", ".join(
+        f"{seat.name}="
+        + (
+            f"zombie/{seat.flavour.value}"
+            if isinstance(seat, ZombieAgent)
+            else seat.provider.name
+            if isinstance(seat, LLMAgent)
+            else "scripted"
         )
-        typer.echo(f"Playing {agents} LLM agents — {assignments}")
+        for seat in seats
+    )
+    typer.echo(f"Seated {agents} — {described}")
 
     hours = 0
     while hours < max_hours and engine.run_turn_cycle():
