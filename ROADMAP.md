@@ -136,13 +136,33 @@
       observation prompt grows with circle size, so this gets worse with more agents.
 
 ### Balance
-- [ ] **Equilibrium is currently unreachable with two or more agents.**
-  `core/constants.py` says the bush at 1.05/hour sustains "two agents sleeping 8 hours
-  each", but `calculate_hunger_rate(8)` is `1.0 - 0.05 * 7 = 0.65`, so a sleeping pair
-  costs 1.3/hour. Either `SLEEP_HUNGER_RATE_VARIATION` should be ~0.071 (giving 0.5 at
-  8 hours, matching `MIN_HUNGER_PER_HOUR` and the comment), or `BUSH_REGENERATION_RATE`
-  should rise to ~1.3. This is a balance decision, not a bug fix — the equilibrium rule
-  itself is tested against a bush that can carry the load.
+- [ ] **Equilibrium is unreachable above one agent at the current regrowth rate.**
+  `BUSH_REGENERATION_RATE = 1.05` carries exactly one agent — awake (1.00/h) or asleep
+  (0.65/h). Two agents both sleeping their deepest still cost 1.30/h. The comment in
+  `core/constants.py` claiming the bush sustains "two agents sleeping 8 hours each" is
+  therefore wrong as the numbers stand.
+
+  Run `uv run python scripts/sustainability.py` for the full table; the thresholds are:
+
+  | Circle | All at deepest sleep | All awake |
+  |--------|---------------------|-----------|
+  | 1 | 0.65 | 1.00 |
+  | 2 | 1.30 | 2.00 |
+  | 3 | 1.95 | 3.00 |
+  | 4 | 2.60 | 4.00 |
+  | 5 | 3.25 | 5.00 |
+  | 6 | 3.90 | 6.00 |
+
+  Two ways to make a tie possible, and they say different things about the game:
+  - **Raise regrowth.** 1.30 lets a pair tie only if *both* sleep their deepest; 1.95
+    does the same for three; 3.00 is the first rate that leaves any slack (a 4-circle
+    can tie with one member awake).
+  - **Make sleep cheaper.** `SLEEP_HUNGER_RATE_VARIATION = 0.0679` brings deepest sleep
+    to 0.525/h so a pair fits under 1.05. Three or more cannot be reached this way at
+    all: it would need 0.35/h per agent and `MIN_HUNGER_PER_HOUR = 0.5` is the floor.
+
+  Newton's call — the current rate is tuned for last-man-standing, and each option
+  changes what the experiment is about.
 
 ### Minor
 - [ ] `GameEngine.log` appends to `game_log` forever; a long run grows it unbounded
