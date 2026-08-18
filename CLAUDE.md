@@ -31,6 +31,14 @@ template in `.env.template`.
   functions; do not restate the arithmetic. A left neighbour reaches you through *their
   right_message* — this was inverted once and the regression tests in `tests/test_circle.py`
   exist to keep it fixed.
+- **Reach is two seats each way** (`MESSAGE_REACH`), and does not depend on who is alive.
+  A dead neighbour never isolates anyone. `reachable_seats` drops a direction that aliases
+  a nearer seat, so a 3-circle offers two listeners and a 4-circle three; tools are built
+  from that map, so a model is never handed a direction that can only fail.
+- **The dead keep their seats.** They stay visible and stay within earshot; a message to a
+  corpse raises `MESSAGE_UNDELIVERED` rather than vanishing. Never filter the dead out of an
+  observation — a body is a fact about the circle, and hiding it rewrites the geometry
+  mid-game.
 - **Circle size comes from `WorldState.agents`**, never from a constant. Minimum 3, since
   below that an agent's two neighbours are the same agent. Neighbours are reachable;
   agents further round are visible only. With exactly 3 those sets coincide — that
@@ -39,6 +47,12 @@ template in `.env.template`.
   what each agent remembers, so the Agno agent is built with `add_history_to_context=False`.
 - **Every model call goes through its provider's pacer** (`core/pacing.py`). Agents sharing
   a key share one limiter, because they share one quota.
+
+- **`sleep_duration` is the rate hunger is charged at while asleep.** Reset it on waking
+  (`WakeUpCommand`), never in the per-hour cleanup — doing that charged every sleeper the
+  waking rate and made long sleep pointless.
+- **The epilogue runs after `game_over` and changes nothing.** No commands, no state; it
+  exists so survivors can account for a game they have now seen the end of.
 
 ## The story layer
 

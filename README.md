@@ -16,7 +16,9 @@
 
 LLM agents sit in a circle around a berry bush. Each agent needs berries to survive (1 berry = 1 hour of life). The bush regenerates ~1.05 berries/hour, but each agent needs ~1 berry/hour to survive indefinitely — so a circle of three or more cannot all live.
 
-**The circle:** an agent can *speak to* its two neighbours only. In a larger circle it can *see* the agents further round — their apparent state, hunger and whether they are talking — but cannot reach them. With exactly three agents those two sets coincide, which is why the game shipped with three; `--agents 5` pulls them apart.
+**The circle:** a voice carries **two seats in each direction**. An agent can speak to its neighbours and over their heads to the seat beyond — including over a body, so a death does not cut anyone out of the conversation. Further round the circle agents are visible (apparent state, hunger, whether they are talking) but out of earshot. A circle of five or fewer is wholly within reach; `--agents 7` pulls visibility and reachability apart.
+
+**The dead stay seated.** A corpse keeps its seat, stays visible, and is still within earshot — it simply never answers, and the speaker is told so rather than left to read silence as refusal.
 
 **The Dilemma:** There's not enough for everyone. Agents must cooperate, compete, or find creative strategies to survive.
 
@@ -117,6 +119,23 @@ See `ARCHITECTURE.md` for detailed architecture decisions.
 See `DESIGN.md` for complete game rules and mechanics.
 
 ---
+
+## 🏁 How a game ends
+
+| Outcome | When |
+|---------|------|
+| `last_standing` | One agent outlives the rest |
+| `extinction` | Nobody survives |
+| `equilibrium` | For three hours running, average demand stays at or below what the bush regrows — the circle found a pace it can hold, and the game ends level with no winner |
+
+Demand for an hour is the **greater** of the life the living burned and the berries they
+took, so an hour where nobody ate does not read as sustainable while hunger still ran.
+
+Whoever is left then gets an **epilogue**: one round, no tools, nothing left to decide,
+in which they look at the bodies and say what they made of it — what they were trying to
+do, what they believed about the others, and where that belief was wrong. It is the one
+thing the turn record cannot recover afterwards, and it is the material the narrator uses
+to close the story.
 
 ## 📖 Output: stories, not log files
 

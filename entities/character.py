@@ -2,15 +2,30 @@
 
 import random
 
-from typing import Tuple, Optional, Set
+from typing import Dict, Tuple, Optional, Set
 from pydantic import BaseModel, Field, ConfigDict
 
-from core.enums import HungerStatus, BodyType, BodyState, AgentAction
+from core.enums import HungerStatus, BodyType, BodyState, AgentAction, MessageDirection
 from core.constants import (
     MAX_HUNGER, STARTING_HUNGER, HUNGER_PER_BERRY, 
     HUNGER_PER_HOUR, MIN_HUNGER_PER_HOUR, SLEEP_HUNGER_RATE_VARIATION,
     MIN_SLEEP_DURATION, MAX_SLEEP_DURATION, DEFAULT_SLEEP_DURATION
 )
+
+class PendingMessage(BaseModel):
+    """A message spoken this turn, waiting to be dispatched when the turn ends."""
+
+    model_config = ConfigDict(frozen=True)
+
+    direction: MessageDirection = Field(description="Seat the message is addressed to")
+    content: str = Field(min_length=1, description="What was said")
+
+
+def _ordered(messages: Tuple[PendingMessage, ...]) -> Tuple[PendingMessage, ...]:
+    """Messages in a fixed direction order, so dispatch never depends on call order."""
+    order = {direction: index for index, direction in enumerate(MessageDirection)}
+    return tuple(sorted(messages, key=lambda message: order[message.direction]))
+
 
 def left_neighbor_id(agent_id: int, total_agents: int) -> int:
     """ID of the agent seated to `agent_id`'s left (clockwise).
@@ -27,14 +42,45 @@ def right_neighbor_id(agent_id: int, total_agents: int) -> int:
     return (agent_id - 1) % total_agents
 
 
+def seat_at(agent_id: int, offset: int, total_agents: int) -> int:
+    """The seat `offset` places round the ring from `agent_id` (left is positive)."""
+    return (agent_id + offset) % total_agents
+
+
+def reachable_seats(agent_id: int, total_agents: int) -> Dict[MessageDirection, int]:
+    """Seats this agent can speak to, by direction.
+
+    Reach is `MESSAGE_REACH` seats each way and does not depend on who is alive:
+    an agent speaks over a dead neighbour's head to the seat beyond. Directions that
+    land on a seat a nearer direction already covers — or on the speaker itself — are
+    dropped, so a 3-circle offers two listeners and a 4-circle three.
+    """
+    near_first = (
+        MessageDirection.LEFT,
+        MessageDirection.RIGHT,
+        MessageDirection.LEFT_FAR,
+        MessageDirection.RIGHT_FAR,
+    )
+    seats: Dict[MessageDirection, int] = {}
+    claimed = {agent_id}
+    for direction in near_first:
+        target = seat_at(agent_id, direction.offset, total_agents)
+        # Nearer directions win the seat, so an agent is never offered two names for
+        # the same listener — in a 3-circle both far directions collapse onto the
+        # neighbours and disappear, which is the degenerate case stated in the tests.
+        if target not in claimed:
+            seats[direction] = target
+            claimed.add(target)
+    return seats
+
+
 def distant_agent_ids(agent_id: int, total_agents: int) -> Tuple[int, ...]:
     """Agents visible across the circle but out of speaking range, in seating order.
 
-    Empty for a 3-agent circle, where visibility and reachability coincide.
+    Empty for circles of 5 or fewer, where reach covers everyone.
     """
-    out_of_reach = {agent_id, left_neighbor_id(agent_id, total_agents),
-                    right_neighbor_id(agent_id, total_agents)}
-    return tuple(i for i in range(total_agents) if i not in out_of_reach)
+    within = set(reachable_seats(agent_id, total_agents).values()) | {agent_id}
+    return tuple(i for i in range(total_agents) if i not in within)
 
 
 class CharacterPhysicalState(BaseModel):
@@ -64,15 +110,34 @@ class CharacterPhysicalState(BaseModel):
     total_berries_consumed: int = Field(default=0, ge=0, description="Total berries eaten")
     time_of_death: Optional[float] = Field(default=None, description="Game time when died")
 
-    # Communication (messages sent this turn, not yet dispatched)
-    left_message: Optional[str] = Field(default=None, description="Message to left neighbor")
-    right_message: Optional[str] = Field(default=None, description="Message to right neighbor")
+    # Communication (messages spoken this turn, not yet dispatched). One per direction:
+    # an agent addresses each seat within reach at most once per turn.
+    pending_messages: Tuple[PendingMessage, ...] = Field(
+        default=(), description="Messages spoken this turn, awaiting dispatch"
+    )
 
 
     @property
     def alive(self) -> bool:
         """Check if agent is alive."""
         return self.body_state != BodyState.DEAD
+
+    def message_for(self, direction: MessageDirection) -> Optional[str]:
+        """What this agent said in `direction` this turn, if anything."""
+        for pending in self.pending_messages:
+            if pending.direction is direction:
+                return pending.content
+        return None
+
+    def has_spoken(self) -> bool:
+        """Whether this agent addressed anyone this turn."""
+        return bool(self.pending_messages)
+
+    def with_message(self, direction: MessageDirection, content: str) -> "CharacterPhysicalState":
+        """Return a copy carrying one more spoken message, replacing any for that direction."""
+        kept = tuple(p for p in self.pending_messages if p.direction is not direction)
+        spoken = kept + (PendingMessage(direction=direction, content=content),)
+        return self.model_copy(update={"pending_messages": _ordered(spoken)})
 
     @property
     def awake(self) -> bool:

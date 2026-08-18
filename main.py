@@ -15,7 +15,7 @@ import logging
 import random
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import typer
 from dotenv import load_dotenv
@@ -91,6 +91,7 @@ def report(engine: GameEngine) -> None:
         typer.echo(f"  {agent.name:<10} ate {agent.total_berries_consumed:>3} berries — {fate}")
     typer.echo(f"  Bush: {state.bush.current_berries:.1f}/{state.bush.max_berries:.0f} berries left")
     typer.echo(f"  Survivors: {len(survivors)}/{state.agent_count}")
+    typer.echo(f"  Outcome: {engine.outcome.value}")
     typer.echo(f"  Commands: {len(engine.history)}, events: {len(engine.events)}")
 
 
@@ -135,9 +136,9 @@ def play(
         engine, scripted=scripted, providers=provider_specs, chronicler=chronicler
     )
 
-    callbacks: Dict[int, object] = engine.decision_callbacks
     for seat in seats:
-        callbacks[seat.agent_id] = seat.decision_callback
+        engine.decision_callbacks[seat.agent_id] = seat.decision_callback
+        engine.reflection_callbacks[seat.agent_id] = seat.reflection_callback
 
     if scripted:
         typer.echo(f"Playing {agents} scripted agents (no API calls).")
@@ -150,6 +151,9 @@ def play(
     hours = 0
     while hours < max_hours and engine.run_turn_cycle():
         hours += 1
+
+    if engine.game_over:
+        engine.run_epilogue()
 
     report(engine)
     record = chronicler.seal()

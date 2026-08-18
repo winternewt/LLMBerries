@@ -14,7 +14,7 @@ from agno.run.base import RunStatus
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from core.chronicler import Chronicler, turn_from_run
-from entities.chronicle import ToolCall
+from entities.chronicle import ToolCall, TurnKind
 from core.commands import (
     EatBerriesCommand,
     FinishTurnCommand,
@@ -23,8 +23,9 @@ from core.commands import (
     ThinkCommand,
 )
 from core.constants import MAX_SLEEP_DURATION, MIN_SLEEP_DURATION
-from core.enums import BodyState
+from core.enums import BodyState, EventType, GameOutcome, MessageDirection
 from core.game_engine import GameEngine
+from entities.character import reachable_seats
 from entities.llm_configs import ProviderSpec, build_model, get_provider_pacer
 from entities.memory import Role
 from entities.observations import AgentObservation
@@ -83,6 +84,25 @@ For 1 and 2 you only get a response on your next turn.
         if engine.current_state.agents[self.agent_id].body_state == BodyState.AWAKE:
             self.finish_turn()
 
+    @property
+    def reflection_callback(self):
+        """The engine calls this once, after the game ends, if this agent survived."""
+        return self.reflect_on_ending
+
+    def reflect_on_ending(
+        self,
+        agent_id: int,
+        observation: AgentObservation,
+        engine: GameEngine,
+        outcome: GameOutcome,
+    ) -> None:
+        """Look back at the finished game. No tools, no commands — the game is over.
+
+        The base implementation says nothing: an agent with no model has no account
+        to give, and inventing one would put words in its mouth.
+        """
+        return None
+
     @abstractmethod
     def decide(self, observation: AgentObservation) -> None:
         """Act on the observation by calling tools. Raise nothing; log and move on."""
@@ -103,40 +123,65 @@ For 1 and 2 you only get a response on your next turn.
         self.engine.execute_command(ThinkCommand(agent_id=self.agent_id, thought=thought))
         return f"You thought: {thought}"
 
-    def speak_to_left(self, content: str) -> str:
-        """Send a message to your left neighbor.
+    def _speak(self, direction: MessageDirection, content: str) -> str:
+        """Hold a message for one seat until the turn ends."""
+        events = self.engine.execute_command(
+            SpeakCommand(agent_id=self.agent_id, direction=direction, content=content)
+        )
+        for event in events:
+            if event.event_type == EventType.COMMAND_FAILED:
+                return event.message
+        return f"Message prepared for {direction.value}."
 
-        The message will reach them on their next turn. Your other neighbor will see that
-        you're communicating, but won't hear what you say. This is your chance to negotiate,
-        or manipulate the situation.
+    def speak_to_left(self, content: str) -> str:
+        """Send a message to the agent sitting immediately to your left.
+
+        They will read it on their next turn. Others see that you are talking, but not
+        what you said. This is your chance to negotiate, or to mislead.
 
         Args:
-            content: What you want to say to your left neighbor
+            content: What you want to say
 
         Returns:
             Confirmation that your message has been prepared
         """
-        self.engine.execute_command(
-            SpeakCommand(agent_id=self.agent_id, say_to_left=content, say_to_right=None)
-        )
-        return "Message prepared for your left neighbor."
+        return self._speak(MessageDirection.LEFT, content)
+
+    def speak_to_left_far(self, content: str) -> str:
+        """Call over your left neighbour's head, to the agent two seats to your left.
+
+        Your voice carries two seats, so this reaches them whether your neighbour
+        between you is alive, asleep or dead.
+
+        Args:
+            content: What you want to say
+
+        Returns:
+            Confirmation that your message has been prepared
+        """
+        return self._speak(MessageDirection.LEFT_FAR, content)
 
     def speak_to_right(self, content: str) -> str:
-        """Send a message to your right neighbor.
-
-        The message will reach them on their next turn. Your other neighbor will see that
-        you're communicating, but won't hear what you say.
+        """Send a message to the agent sitting immediately to your right.
 
         Args:
-            content: What you want to say to your right neighbor
+            content: What you want to say
 
         Returns:
             Confirmation that your message has been prepared
         """
-        self.engine.execute_command(
-            SpeakCommand(agent_id=self.agent_id, say_to_left=None, say_to_right=content)
-        )
-        return "Message prepared for your right neighbor."
+        return self._speak(MessageDirection.RIGHT, content)
+
+    def speak_to_right_far(self, content: str) -> str:
+        """Call over your right neighbour's head, to the agent two seats to your right.
+
+        Args:
+            content: What you want to say
+
+        Returns:
+            Confirmation that your message has been prepared
+        """
+        return self._speak(MessageDirection.RIGHT_FAR, content)
 
     def eat_berries(self, count: int) -> str:
         """Consume berries from the bush to extend your life.
@@ -182,14 +227,21 @@ For 1 and 2 you only get a response on your next turn.
         return tuple(event.message for event in events)
 
     def tools(self) -> List:
-        """Tools offered to a model, in a fixed order."""
-        return [
-            self.think,
-            self.speak_to_left,
-            self.speak_to_right,
-            self.eat_berries,
-            self.choose_sleep_duration,
-        ]
+        """Tools offered to a model, in a fixed order.
+
+        Only the directions that exist in this circle are offered: a 3-agent ring has
+        no far seats, so handing the model `speak_to_left_far` there would be handing
+        it a tool that can only fail.
+        """
+        reachable = reachable_seats(self.agent_id, self.engine.current_state.agent_count)
+        by_direction = {
+            MessageDirection.LEFT: self.speak_to_left,
+            MessageDirection.LEFT_FAR: self.speak_to_left_far,
+            MessageDirection.RIGHT: self.speak_to_right,
+            MessageDirection.RIGHT_FAR: self.speak_to_right_far,
+        }
+        speaking = [by_direction[direction] for direction in by_direction if direction in reachable]
+        return [self.think, *speaking, self.eat_berries, self.choose_sleep_duration]
 
 
 def _tool_calls_from(output: object) -> Tuple[ToolCall, ...]:
@@ -250,7 +302,7 @@ class ScriptedAgent(Agent):
                     agent_name=observation.agent_name,
                     hunger=observation.own_hunger,
                     bush_berries=observation.bush_berries,
-                    neighbours=(str(observation.leftie), str(observation.rightie)),
+                    neighbours=tuple(str(seat) for seat in observation.seats),
                     heard=(),
                     tool_calls=tuple(calls),
                 )
@@ -301,6 +353,89 @@ class LLMAgent(Agent):
         if not heard:
             return "Nothing has been said to you since your last turn."
         return "Since your last turn:\n" + "\n".join(f"- {line}" for line in heard)
+
+    def reflect_on_ending(
+        self,
+        agent_id: int,
+        observation: AgentObservation,
+        engine: GameEngine,
+        outcome: GameOutcome,
+    ) -> None:
+        """One last model call: what does this agent make of how it ended?"""
+        state = engine.current_state
+        fates = "\n".join(
+            f"- {other.name}: "
+            + (
+                f"alive, {other.hunger:.0f} hours of life left"
+                if other.alive
+                else f"died at hour {other.time_of_death:.0f} having eaten "
+                f"{other.total_berries_consumed} berries"
+            )
+            for other in state.agents
+        )
+        endings = {
+            GameOutcome.LAST_STANDING: "You are the last one left alive.",
+            GameOutcome.EQUILIBRIUM: (
+                "The circle found a rate the bush can sustain; those still alive stay alive."
+            ),
+            GameOutcome.EXTINCTION: "Everyone died.",
+            GameOutcome.ONGOING: "The game was stopped before it resolved.",
+        }
+
+        reflection_agent = AgnoAgent(
+            name=f"{observation.agent_name}-epilogue",
+            model=self._model,
+            system_message="\n\n".join(
+                (
+                    f"You are {observation.agent_name}. The game is over after "
+                    f"{state.world_time} hours. {endings[outcome]}",
+                    f"How it ended:\n{fates}",
+                    observation.format_prompt(),
+                    "Nothing you say now changes anything — there is nothing left to "
+                    "decide. Say what you make of it: what you were trying to do, what "
+                    "you believed about the others, where that belief turned out to be "
+                    "wrong, and what you would do differently. Be honest rather than "
+                    "flattering to yourself.",
+                )
+            ),
+            add_history_to_context=False,
+            telemetry=False,
+        )
+
+        get_provider_pacer(self.provider).acquire()
+        output = reflection_agent.run("Look back on the game.")
+        failed = output.status == RunStatus.error
+
+        if failed:
+            logger.warning(
+                "%s (%s): reflection call failed: %s",
+                observation.agent_name,
+                self.provider.name,
+                (output.content or "no content")[:200],
+            )
+        else:
+            logger.info(
+                "%s reflects: %s",
+                observation.agent_name,
+                (output.content or "").strip()[:400],
+            )
+
+        if self.chronicler is not None:
+            record = turn_from_run(
+                hour=state.world_time,
+                agent_id=self.agent_id,
+                agent_name=observation.agent_name,
+                hunger=observation.own_hunger,
+                bush_berries=observation.bush_berries,
+                neighbours=tuple(str(seat) for seat in observation.seats),
+                heard=(),
+                provider=self.provider.name,
+                model_id=self.provider.model_id,
+                output=output,
+                turn_lost=failed,
+                error=(output.content or "")[:300] if failed else None,
+            )
+            self.chronicler.record(record.model_copy(update={"kind": TurnKind.REFLECTION}))
 
     def _paced_tool(self, function_name: str, function_call, arguments: dict):
         """Pace the model call that follows each tool result.
@@ -356,8 +491,7 @@ class LLMAgent(Agent):
                     agent_name=observation.agent_name,
                     hunger=observation.own_hunger,
                     bush_berries=observation.bush_berries,
-                    neighbours=(str(observation.leftie), str(observation.rightie))
-                    + tuple(str(other) for other in observation.distant),
+                    neighbours=tuple(str(seat) for seat in observation.seats),
                     heard=tuple(line for line in heard.splitlines() if line.startswith("- ")),
                     provider=self.provider.name,
                     model_id=self.provider.model_id,

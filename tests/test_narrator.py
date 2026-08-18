@@ -235,12 +235,12 @@ def test_an_empty_game_has_no_chapters() -> None:
     assert empty.has_reasoning() is False
 
 
-@pytest.mark.parametrize("agent_count", [3, 5])
-def test_transcript_records_distant_agents_for_larger_circles(agent_count: int) -> None:
+@pytest.mark.parametrize("agent_count", [3, 5, 7])
+def test_a_turn_records_every_seat_the_agent_could_see(agent_count: int) -> None:
     chronicle = play(agent_count=agent_count, max_hours=3)
     first_turn = chronicle.turns[0]
 
-    assert len(first_turn.neighbours) == 2, (
-        "scripted turns record the two neighbours; distant agents belong to LLM turns"
+    assert len(first_turn.neighbours) == agent_count - 1, (
+        "a turn records the whole circle as the agent saw it, reachable or not"
     )
     assert render_transcript(chronicle).startswith(f"{agent_count} agents")

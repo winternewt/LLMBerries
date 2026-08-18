@@ -32,13 +32,74 @@ class BodyState(int, Enum):
     AWAKE = 3
     CRAZY = 4
 
+class MessageDirection(str, Enum):
+    """Who a message is addressed to, as a seat offset around the ring.
+
+    Reach is two seats each way, so an agent whose immediate neighbour has died is
+    not cut off: it can still speak over the corpse to the seat beyond.
+    """
+
+    LEFT = "left"
+    LEFT_FAR = "left_far"
+    RIGHT = "right"
+    RIGHT_FAR = "right_far"
+
+    @property
+    def offset(self) -> int:
+        """Seats to move from the speaker to reach the listener (left is +1)."""
+        return _DIRECTION_OFFSETS[self]
+
+    @property
+    def label(self) -> str:
+        """How the listener hears the speaker's position, from the listener's side."""
+        return _DIRECTION_LABELS[self]
+
+    @property
+    def opposite(self) -> "MessageDirection":
+        """The direction the listener would use to answer."""
+        return _DIRECTION_OPPOSITES[self]
+
+
+_DIRECTION_OFFSETS: dict = {
+    MessageDirection.LEFT: 1,
+    MessageDirection.LEFT_FAR: 2,
+    MessageDirection.RIGHT: -1,
+    MessageDirection.RIGHT_FAR: -2,
+}
+
+_DIRECTION_LABELS: dict = {
+    MessageDirection.LEFT: "your right neighbour",
+    MessageDirection.LEFT_FAR: "two seats to your right",
+    MessageDirection.RIGHT: "your left neighbour",
+    MessageDirection.RIGHT_FAR: "two seats to your left",
+}
+
+_DIRECTION_OPPOSITES: dict = {
+    MessageDirection.LEFT: MessageDirection.RIGHT,
+    MessageDirection.LEFT_FAR: MessageDirection.RIGHT_FAR,
+    MessageDirection.RIGHT: MessageDirection.LEFT,
+    MessageDirection.RIGHT_FAR: MessageDirection.LEFT_FAR,
+}
+
+
+class GameOutcome(str, Enum):
+    """How a game finished. ONGOING until it has."""
+
+    ONGOING = "ongoing"
+    LAST_STANDING = "last_standing"  # one agent outlived the rest
+    EXTINCTION = "extinction"  # nobody survived
+    EQUILIBRIUM = "equilibrium"  # the circle found a rate the bush can carry
+
+
 class AgentAction(str, Enum):
     """
     Actions that an agent can take, description of the action.
     """
     THINK = "think() - Think about your situation and your actions."
-    SPEAK_TO_LEFT = "speak_to_left() - Talk to left neighbor (right will see the fact that you talking, but not the message)"
-    SPEAK_TO_RIGHT = "speak_to_right() - Talk to right neighbor (left will see the fact that you talking, but not the message)"
+    SPEAK_TO_LEFT = "speak_to_left() - Talk to your left neighbour (others see that you are talking, not what you said)"
+    SPEAK_TO_LEFT_FAR = "speak_to_left_far() - Talk over your left neighbour's head, two seats to your left"
+    SPEAK_TO_RIGHT = "speak_to_right() - Talk to your right neighbour (others see that you are talking, not what you said)"
+    SPEAK_TO_RIGHT_FAR = "speak_to_right_far() - Talk over your right neighbour's head, two seats to your right"
     EAT_BERRIES = "eat_berries() - Eat immediately (instant, no time passes)"
     CHOOSE_SLEEP_DURATION = "choose_sleep_duration() - By default your next turn happens after 1 hour, but you can choose to sleep for longer ( up to 8 hours)"
 
@@ -120,6 +181,7 @@ class EventType(str, Enum):
     # Meta events (game engine internal)
     TIME_ADVANCED = "time_advanced"
     AGENT_DIED = "agent_died"
+    EQUILIBRIUM_REACHED = "equilibrium_reached"
     AGENT_WOKE = "agent_woke"
     
     # Agent action events
@@ -137,6 +199,7 @@ class EventType(str, Enum):
     # Communication events
     MESSAGE_PREPARED = "message_prepared"
     MESSAGE_DISPATCHED = "message_dispatched"
+    MESSAGE_UNDELIVERED = "message_undelivered"
     
     # Failure events
     COMMAND_FAILED = "command_failed"

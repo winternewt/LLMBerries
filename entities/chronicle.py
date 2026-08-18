@@ -9,11 +9,19 @@ preserved after the run.
 Everything here is frozen: a chronicle is written once, then read.
 """
 
+from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.enums import BodyType
+
+
+class TurnKind(str, Enum):
+    """Whether a record is a turn that was played, or a look back at the game."""
+
+    ACTION = "action"
+    REFLECTION = "reflection"
 
 
 class ToolCall(BaseModel):
@@ -43,6 +51,9 @@ class TurnRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     hour: int = Field(ge=0, description="Game hour this turn was taken in")
+    kind: TurnKind = Field(
+        default=TurnKind.ACTION, description="A played turn, or the epilogue reflection"
+    )
     agent_id: int = Field(ge=0)
     agent_name: str
     provider: Optional[str] = Field(
@@ -132,11 +143,22 @@ class GameChronicle(BaseModel):
     winner: Optional[str] = Field(
         default=None, description="Last agent standing; None if several lived or none did"
     )
+    outcome: str = Field(
+        default="ongoing", description="How it ended: last_standing, extinction or equilibrium"
+    )
+
+    def reflections(self) -> Tuple[TurnRecord, ...]:
+        """What the survivors said once it was over."""
+        return tuple(turn for turn in self.turns if turn.kind is TurnKind.REFLECTION)
+
+    def played_turns(self) -> Tuple[TurnRecord, ...]:
+        """Turns that were actually played, excluding the epilogue."""
+        return tuple(turn for turn in self.turns if turn.kind is TurnKind.ACTION)
 
     def turns_by_hour(self) -> Dict[int, List[TurnRecord]]:
         """Turns grouped by hour, each hour's turns in the order they were taken."""
         grouped: Dict[int, List[TurnRecord]] = {}
-        for turn in self.turns:
+        for turn in self.played_turns():
             grouped.setdefault(turn.hour, []).append(turn)
         return grouped
 

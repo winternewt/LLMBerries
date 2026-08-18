@@ -1,5 +1,9 @@
 DEFAULT_AGENT_COUNT = 3 # agents in a game unless the caller asks for more
 MIN_AGENT_COUNT = 3 # below this the circle degenerates: left and right are the same agent
+
+MESSAGE_REACH = 2 # seats a message carries in each direction, so a dead neighbour does not isolate anyone
+
+EQUILIBRIUM_WINDOW_HOURS = 3 # consecutive hours the circle must live within the bush's means to tie
 MAX_RUN_TIME = 24*30 # maximum number of turns to run the game
 
 MAX_BERRIES = 40 # maximum number of berries on the bush

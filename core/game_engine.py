@@ -25,10 +25,10 @@ from core.commands import (
 )
 from entities.observations import AgentObservation
 from core.constants import (
-    MIN_AGENT_COUNT, STARTING_BERRIES, STARTING_HUNGER,
+    MIN_AGENT_COUNT, EQUILIBRIUM_WINDOW_HOURS, STARTING_BERRIES, STARTING_HUNGER,
     MAX_BERRIES, BUSH_REGENERATION_RATE
 )
-from core.enums import BodyType, BodyState, EventType
+from core.enums import BodyType, BodyState, EventType, GameOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -123,12 +123,24 @@ class GameEngine(BaseModel):
     )
     
     # Agent decision callbacks (callback pattern to avoid circular dependency)
+    reflection_callbacks: Dict[int, Callable] = Field(
+        default_factory=dict,
+        description="Called once per survivor after the game ends, for a closing thought"
+    )
     decision_callbacks: Dict[int, AgentDecisionCallback] = Field(
         default_factory=dict,
         description="Callbacks for agent decision-making, keyed by agent_id"
     )
     
     # Game state
+    outcome: GameOutcome = Field(
+        default=GameOutcome.ONGOING,
+        description="How the game ended; ONGOING until it has"
+    )
+    hourly_demand: List[float] = Field(
+        default_factory=list,
+        description="Per hour, the greater of hunger burned and berries eaten by the living"
+    )
     game_over: bool = Field(
         default=False,
         description="Whether the game has ended"
@@ -190,8 +202,7 @@ class GameEngine(BaseModel):
                 sleep_duration=1.0,
                 total_berries_consumed=0,
                 time_of_death=None,
-                left_message=None,
-                right_message=None
+                pending_messages=()
             )
             for i in range(agent_count)
         )
@@ -285,6 +296,7 @@ class GameEngine(BaseModel):
         Returns:
             True if game continues, False if game over
         """
+        hour_start_event = len(self.events)
         self.log("")
         self.log(f"{'='*60}")
         self.log(f"HOUR {self.current_state.world_time}")
@@ -321,9 +333,11 @@ class GameEngine(BaseModel):
             self.game_over = True
             if alive_count == 1:
                 self.winner = alive_agents[0]
+                self.outcome = GameOutcome.LAST_STANDING
                 winner_agent = self.current_state.agents[self.winner]
                 self.log(f"\n🏆 GAME OVER: {winner_agent.name} WINS! 🏆")
             else:
+                self.outcome = GameOutcome.EXTINCTION
                 self.log(f"\n💀 GAME OVER: ALL AGENTS DIED 💀")
             return False
         
@@ -400,11 +414,123 @@ class GameEngine(BaseModel):
                 sequence_number=0,
                 timestamp=0.0
             ))
+            self._record_hourly_demand(hour_events=self.events[hour_start_event:])
+            if self._equilibrium_reached():
+                return False
         else:
             self.log("  Not all agents asleep yet, waiting...")
         
         return True
+
+    def _record_hourly_demand(self, hour_events: List[GameEvent]) -> None:
+        """Note what this hour cost the circle.
+
+        Demand is the greater of two readings of the same hour: the life the living
+        actually burned, and the berries they took. They differ when an agent eats
+        into a reserve or goes without, and taking the larger keeps a lull in eating
+        from reading as a sustainable rate.
+        """
+        hunger_burned = sum(
+            float(event.data.get("hunger_before", 0.0)) - float(event.data.get("hunger_after", 0.0))
+            for event in hour_events
+            if event.event_type == EventType.HUNGER_DECREASED
+        )
+        berries_eaten = sum(
+            float(event.data.get("berries_eaten", 0))
+            for event in hour_events
+            if event.event_type == EventType.BERRIES_EATEN
+        )
+        self.hourly_demand.append(max(hunger_burned, berries_eaten))
+
+    def _equilibrium_reached(self) -> bool:
+        """True when the circle has lived within the bush's means long enough to tie.
+
+        The bush regrows at a fixed rate. If, across the last
+        EQUILIBRIUM_WINDOW_HOURS hours, average demand has stayed at or below that
+        rate, the survivors have found a pace the bush can carry indefinitely and
+        the game ends level rather than waiting for someone to slip.
+
+        Needs at least two survivors: one agent left is `LAST_STANDING`, which Phase
+        3 has already declared.
+        """
+        window = self.hourly_demand[-EQUILIBRIUM_WINDOW_HOURS:]
+        if len(window) < EQUILIBRIUM_WINDOW_HOURS:
+            return False
+
+        alive = self.current_state.get_alive_agents()
+        if len(alive) < 2:
+            return False
+
+        average_demand = sum(window) / len(window)
+        regeneration = self.current_state.bush.regeneration_rate
+        if average_demand > regeneration:
+            return False
+
+        self.game_over = True
+        self.outcome = GameOutcome.EQUILIBRIUM
+        survivors = ", ".join(self.current_state.agents[i].name for i in alive)
+        self.log(
+            f"\n⚖️  GAME OVER: EQUILIBRIUM — {survivors} held demand at "
+            f"{average_demand:.2f} berries/hour for {EQUILIBRIUM_WINDOW_HOURS} hours, "
+            f"within the bush's {regeneration:.2f}/hour"
+        )
+        self.events.append(GameEvent(
+            sequence_number=len(self.history),
+            event_type=EventType.EQUILIBRIUM_REACHED,
+            message=(
+                f"Equilibrium: {len(alive)} agents sustained "
+                f"{average_demand:.2f} berries/hour against a bush growing "
+                f"{regeneration:.2f}/hour"
+            ),
+            data={
+                "average_demand": average_demand,
+                "regeneration_rate": regeneration,
+                "window_hours": EQUILIBRIUM_WINDOW_HOURS,
+                "survivors": len(alive),
+            },
+            game_time=self.current_state.world_time,
+        ))
+        self.event_bus.publish_event(self.events[-1])
+        return True
     
+    def run_epilogue(self) -> int:
+        """Give every survivor one last round to reflect on how it went.
+
+        No commands are executed and no state changes: the game is over, and this
+        round exists so the last agents standing can say what they made of it. That
+        is the one thing the turn record cannot recover afterwards — an agent's
+        account of a game it has now seen the end of.
+
+        Returns how many agents reflected.
+        """
+        if not self.game_over:
+            raise RuntimeError("the epilogue belongs after the game has ended")
+
+        survivors = self.current_state.get_alive_agents()
+        if not survivors:
+            self.log("\nNo one left to reflect.")
+            return 0
+
+        self.log("")
+        self.log("=" * 60)
+        self.log("EPILOGUE")
+        self.log("=" * 60)
+
+        reflected = 0
+        for agent_id in survivors:
+            callback = self.reflection_callbacks.get(agent_id)
+            if callback is None:
+                continue
+            agent = self.current_state.agents[agent_id]
+            self.log(f"\n  --- {agent.name} looks around ---")
+            # The observation is built the same way as during play, so the survivor
+            # sees the bodies exactly as it saw the living: same seats, same reach.
+            observation = AgentObservation.from_state(self.current_state, agent_id)
+            callback(agent_id, observation, self, self.outcome)
+            reflected += 1
+
+        return reflected
+
     def run_game(self, max_hours: int = 100) -> None:
         """
         Run complete game until game over or max hours reached.

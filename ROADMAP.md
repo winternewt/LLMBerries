@@ -129,6 +129,21 @@
 ### Critical
 - None currently
 
+### Pacing
+- [ ] **The pacer counts requests, not tokens.** A 5-agent game on Groq hits 429 on its
+      8k tokens/minute ceiling long before 30 requests/minute. The provider SDK retries
+      and the game continues, but the pacer should track a token budget too — the
+      observation prompt grows with circle size, so this gets worse with more agents.
+
+### Balance
+- [ ] **Equilibrium is currently unreachable with two or more agents.**
+  `core/constants.py` says the bush at 1.05/hour sustains "two agents sleeping 8 hours
+  each", but `calculate_hunger_rate(8)` is `1.0 - 0.05 * 7 = 0.65`, so a sleeping pair
+  costs 1.3/hour. Either `SLEEP_HUNGER_RATE_VARIATION` should be ~0.071 (giving 0.5 at
+  8 hours, matching `MIN_HUNGER_PER_HOUR` and the comment), or `BUSH_REGENERATION_RATE`
+  should rise to ~1.3. This is a balance decision, not a bug fix — the equilibrium rule
+  itself is tested against a bush that can carry the load.
+
 ### Minor
 - [ ] `GameEngine.log` appends to `game_log` forever; a long run grows it unbounded
 - [ ] Sleep duration is clamped silently in `Agent.choose_sleep_duration`; the model

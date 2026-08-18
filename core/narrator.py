@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 NARRATOR_BRIEF: str = """You are the narrator of LLMBerries: a circle of AI agents \
 around a berry bush that cannot feed them all. One berry buys one hour of life. The \
-bush regrows about one berry an hour. They can speak only to their two neighbours.
+bush regrows about one berry an hour. A voice carries two seats each way, so an agent can speak past a neighbour — including past a dead one — but not across the whole ring.
 
 Write the story of what happened. You care about *why*: what each agent reasoned, \
 what it believed about its neighbours, where that belief was wrong, and what it cost. \
@@ -40,6 +40,7 @@ Rules you must not break:
 dialogue that is not there.
 - Where an agent's reasoning was not captured, say so plainly rather than guessing at it.
 - Do not moralise at the end. Report what they did and what they said about it.
+- If a survivor was given an epilogue, let their own account of the game close the story.
 
 Write in past tense, close third person, no headings, no bullet lists."""
 
@@ -94,6 +95,14 @@ def render_transcript(chronicle: GameChronicle) -> str:
             )
             lines.append("")
 
+    for reflection in chronicle.reflections():
+        lines.append(f"[Epilogue] {reflection.agent_name} looks back:")
+        if reflection.reasoning:
+            lines.append(f"  reasoning: {reflection.reasoning}")
+        lines.append(f"  said: {reflection.said_aloud or 'nothing'}")
+        lines.append("")
+
+    lines.append(f"Outcome: {chronicle.outcome}")
     lines.append("How it ended:")
     for summary in chronicle.agents:
         if summary.survived:
@@ -212,8 +221,9 @@ class Narrator:
 
         ending = self._tell(
             "Write the closing passage. Say who survived, who did not, and — using only "
-            "their recorded reasoning — what each of them appears to have believed that "
-            "led them there.\n\n"
+            "their recorded reasoning and what they said afterwards — what each of them "
+            "appears to have believed that led them there. Where a survivor reflected on "
+            "the game, let their own account carry the ending.\n\n"
             f"HOW IT ENDED\n{_ending_block(chronicle)}"
         )
         if ending is not None:
@@ -235,8 +245,17 @@ def _ending_block(chronicle: GameChronicle) -> str:
             f"{summary.name} ({summary.provider or 'scripted'}): {fate}, "
             f"ate {summary.berries_eaten} berries over {summary.turns_taken} turns"
         )
-        last = _last_reasoning(chronicle.turns, summary.agent_id)
+        last = _last_reasoning(chronicle.played_turns(), summary.agent_id)
         lines.append(f"  last recorded reasoning: {last or 'none captured'}")
+    for reflection in chronicle.reflections():
+        lines.append("")
+        lines.append(f"{reflection.agent_name}, looking back once it was over:")
+        if reflection.turn_lost:
+            lines.append("  (their provider refused the call; nothing was said)")
+            continue
+        if reflection.reasoning:
+            lines.append(f"  reasoning: {reflection.reasoning}")
+        lines.append(f"  said: {reflection.said_aloud or 'nothing'}")
     return "\n".join(lines)
 
 

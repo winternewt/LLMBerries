@@ -8,12 +8,12 @@ from core.constants import (
     HUNGER_PER_HOUR, STARTING_BERRIES,
     DEFAULT_SLEEP_DURATION
 )
-from core.enums import BodyState, EventType
+from core.enums import BodyState, EventType, MessageDirection
 
 from entities.world import WorldState
 from entities.events import GameEvent
 from entities.bush import BushRules
-from entities.character import CharacterRules
+from entities.character import CharacterRules, reachable_seats
 from entities.memory import Role
 
 class Command(BaseModel, ABC):
@@ -80,8 +80,12 @@ class ClearPendingMessagesCommand(Command):
     """
     Meta-command: Clear agent's pending message fields at start of turn.
     
-    Clears left_message and right_message fields so agent starts fresh.
-    Also resets sleep_duration to default (1 hour).
+    Clears the messages spoken last turn so the agent starts fresh.
+
+    It does NOT touch sleep_duration: that is the rate the agent is currently
+    sleeping at, and hunger is charged against it every hour. Resetting it here
+    charged every sleeper the waking rate, which quietly made long sleep worthless.
+    WakeUpCommand resets it instead, when the sleep it governed is over.
     """
     
     def can_execute(self, state: WorldState) -> bool:
@@ -90,12 +94,7 @@ class ClearPendingMessagesCommand(Command):
     
     def execute(self, state: WorldState) -> Tuple[WorldState, Tuple[GameEvent, ...]]:
         """Clear agent's pending messages."""
-        new_state = state.with_agent(
-            self.agent_id,
-            left_message=None,
-            right_message=None,
-            sleep_duration=DEFAULT_SLEEP_DURATION
-        )
+        new_state = state.with_agent(self.agent_id, pending_messages=())
         
         # No event needed - internal housekeeping
         return new_state, ()
@@ -156,7 +155,7 @@ class WakeUpCommand(Command):
         return agent.body_state == BodyState.ASLEEP and agent.alive
     
     def execute(self, state: WorldState) -> Tuple[WorldState, Tuple[GameEvent, ...]]:
-        """Wake up agent."""
+        """Wake up agent, and reset the sleep rate now that the sleep is over."""
         agent = state.agents[self.agent_id]
         
         new_state = state.with_agent(
@@ -458,86 +457,73 @@ class EatBerriesCommand(Command):
 
 class SpeakCommand(Command):
     """
-    Agent sets messages for neighbors.
-    
-    Messages are stored on agent's state (left_message, right_message)
-    and will be dispatched to neighbor conversation histories when
-    FinishTurnCommand is executed.
+    Agent addresses one seat within reach.
+
+    The message is held on the speaker's state until FinishTurnCommand dispatches
+    it, so a listener hears it on their next turn rather than mid-turn. Speaking
+    again in the same direction in one turn replaces the earlier message.
     """
-    
-    say_to_left: Optional[str] = Field(default=None, description="Message to left neighbor")
-    say_to_right: Optional[str] = Field(default=None, description="Message to right neighbor")
-    
+
+    direction: MessageDirection = Field(description="Seat addressed, relative to the speaker")
+    content: str = Field(min_length=1, description="What the agent says")
+
     def can_execute(self, state: WorldState) -> bool:
-        """Agent must be alive and awake."""
+        """Agent must be alive, awake, and the direction must land on another seat."""
         agent = state.agents[self.agent_id]
-        return agent.alive and agent.body_state == BodyState.AWAKE
-    
+        if not (agent.alive and agent.body_state == BodyState.AWAKE):
+            return False
+        return self.direction in reachable_seats(self.agent_id, state.agent_count)
+
     def execute(self, state: WorldState) -> Tuple[WorldState, Tuple[GameEvent, ...]]:
-        """Set messages for neighbors."""
+        """Hold the message on the speaker until the turn ends."""
         agent = state.agents[self.agent_id]
-        
+
         if not self.can_execute(state):
+            reachable = reachable_seats(self.agent_id, state.agent_count)
+            reason = (
+                "dead_or_asleep"
+                if not (agent.alive and agent.body_state == BodyState.AWAKE)
+                else "no_such_seat"
+            )
+            detail = (
+                f"{agent.name} cannot speak (dead or asleep)"
+                if reason == "dead_or_asleep"
+                else (
+                    f"{agent.name} has no seat to their {self.direction.value} in a circle "
+                    f"of {state.agent_count}; reachable: "
+                    f"{', '.join(sorted(d.value for d in reachable))}"
+                )
+            )
             return state, (
                 GameEvent(
                     sequence_number=self.sequence_number,
                     agent_id=self.agent_id,
                     event_type=EventType.COMMAND_FAILED,
-                    message=f"{agent.name} cannot speak (dead or asleep)",
-                    data={"reason": "dead_or_asleep"},
+                    message=detail,
+                    data={"reason": reason, "direction": self.direction.value},
                     game_time=self.timestamp
                 ),
             )
-        
-        if not self.say_to_left and not self.say_to_right:
-            return state, (
-                GameEvent(
-                    sequence_number=self.sequence_number,
-                    agent_id=self.agent_id,
-                    event_type=EventType.COMMAND_FAILED,
-                    message=f"{agent.name} must provide at least one message",
-                    data={"reason": "no_message"},
-                    game_time=self.timestamp
-                ),
-            )
-        
-        # Store messages on agent
-        updates: Dict[str, Any] = {}
-        events_list = []
-        
-        if self.say_to_left:
-            updates["left_message"] = self.say_to_left
-            events_list.append(GameEvent(
+
+        speaker = agent.with_message(self.direction, self.content)
+        state = state.with_agent(self.agent_id, pending_messages=speaker.pending_messages)
+
+        events = (
+            GameEvent(
                 sequence_number=self.sequence_number,
                 agent_id=self.agent_id,
                 event_type=EventType.MESSAGE_PREPARED,
-                message=f"{agent.name} prepared message for left neighbor",
+                message=f"{agent.name} prepared a message for {self.direction.value}",
                 data={
                     "agent_name": agent.name,
-                    "direction": "left",
-                    "message_length": len(self.say_to_left)
+                    "direction": self.direction.value,
+                    "message_length": len(self.content)
                 },
                 game_time=self.timestamp
-            ))
-        
-        if self.say_to_right:
-            updates["right_message"] = self.say_to_right
-            events_list.append(GameEvent(
-                sequence_number=self.sequence_number,
-                agent_id=self.agent_id,
-                event_type=EventType.MESSAGE_PREPARED,
-                message=f"{agent.name} prepared message for right neighbor",
-                data={
-                    "agent_name": agent.name,
-                    "direction": "right",
-                    "message_length": len(self.say_to_right)
-                },
-                game_time=self.timestamp
-            ))
-        
-        state = state.with_agent(self.agent_id, **updates)
-        
-        return state, tuple(events_list)
+            ),
+        )
+
+        return state, events
 
 
 class SleepDurationCommand(Command):
@@ -628,56 +614,60 @@ class FinishTurnCommand(Command):
         # 2. Dispatch messages to neighbor conversation histories
         messages_dispatched = 0
         
-        if agent.left_message:
-            left_id = agent.get_left_neighbor_id(state.agent_count)
-            left_agent = state.agents[left_id]
-            
-            if left_agent.alive:
-                # Add to neighbor's conversation history
-                old_memory = state.agent_memories[left_id]
-                message_text = f"Hour {int(self.timestamp)}: Your right neighbor ({agent.name}) says: {agent.left_message}"
-                new_memory = old_memory.with_message(Role.system, message_text)
-                state = state.with_agent_memory(left_id, new_memory)
-                messages_dispatched += 1
-                
+        for pending in agent.pending_messages:
+            seats = reachable_seats(self.agent_id, state.agent_count)
+            target_id = seats.get(pending.direction)
+            if target_id is None:
+                # The seat vanished between speaking and finishing — only possible if
+                # the circle changed size, which it cannot. Recorded rather than lost.
                 events_list.append(GameEvent(
                     sequence_number=self.sequence_number,
                     agent_id=self.agent_id,
-                    event_type=EventType.MESSAGE_DISPATCHED,
-                    message=f"{agent.name} sent message to left neighbor ({left_agent.name})",
-                    data={
-                        "from_agent": agent.name,
-                        "to_agent": left_agent.name,
-                        "direction": "left"
-                    },
+                    event_type=EventType.MESSAGE_UNDELIVERED,
+                    message=f"{agent.name}'s message to {pending.direction.value} had no seat",
+                    data={"from_agent": agent.name, "direction": pending.direction.value,
+                          "reason": "no_such_seat"},
                     game_time=self.timestamp
                 ))
-        
-        if agent.right_message:
-            right_id = agent.get_right_neighbor_id(state.agent_count)
-            right_agent = state.agents[right_id]
-            
-            if right_agent.alive:
-                # Add to neighbor's conversation history
-                old_memory = state.agent_memories[right_id]
-                message_text = f"Hour {int(self.timestamp)}: Your left neighbor ({agent.name}) says: {agent.right_message}"
-                new_memory = old_memory.with_message(Role.system, message_text)
-                state = state.with_agent_memory(right_id, new_memory)
-                messages_dispatched += 1
-                
+                continue
+
+            target = state.agents[target_id]
+            if not target.alive:
+                # The dead do not listen. The speaker is told, so silence is not
+                # mistaken for a neighbour choosing not to answer.
                 events_list.append(GameEvent(
                     sequence_number=self.sequence_number,
                     agent_id=self.agent_id,
-                    event_type=EventType.MESSAGE_DISPATCHED,
-                    message=f"{agent.name} sent message to right neighbor ({right_agent.name})",
-                    data={
-                        "from_agent": agent.name,
-                        "to_agent": right_agent.name,
-                        "direction": "right"
-                    },
+                    event_type=EventType.MESSAGE_UNDELIVERED,
+                    message=f"{agent.name} spoke to {target.name}, who is dead",
+                    data={"from_agent": agent.name, "to_agent": target.name,
+                          "direction": pending.direction.value, "reason": "recipient_dead"},
                     game_time=self.timestamp
                 ))
-        
+                continue
+
+            heard_from = pending.direction.label
+            message_text = (
+                f"Hour {int(self.timestamp)}: {heard_from} ({agent.name}) says: {pending.content}"
+            )
+            state = state.with_agent_memory(
+                target_id, state.agent_memories[target_id].with_message(Role.system, message_text)
+            )
+            messages_dispatched += 1
+
+            events_list.append(GameEvent(
+                sequence_number=self.sequence_number,
+                agent_id=self.agent_id,
+                event_type=EventType.MESSAGE_DISPATCHED,
+                message=f"{agent.name} sent a message {pending.direction.value} to {target.name}",
+                data={
+                    "from_agent": agent.name,
+                    "to_agent": target.name,
+                    "direction": pending.direction.value
+                },
+                game_time=self.timestamp
+            ))
+
         # 3. Put agent to sleep
         state = state.with_agent(
             self.agent_id,

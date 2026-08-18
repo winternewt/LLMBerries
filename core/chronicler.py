@@ -80,6 +80,7 @@ class Chronicler:
             agents=summaries,
             berries_left=state.bush.current_berries,
             winner=survivors[0].name if len(survivors) == 1 else None,
+            outcome=self.engine.outcome.value,
         )
 
 
