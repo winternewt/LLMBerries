@@ -282,3 +282,94 @@ def test_the_tell_survives_a_replay() -> None:
 
     assert engine.initial_state.agents[1].appears_crazy_chance == pytest.approx(0.7)
     assert engine.replay().current_state.agents[1].appears_crazy_chance == pytest.approx(0.7)
+
+
+def test_every_flavour_can_come_up_empty_handed() -> None:
+    """A greed floor above zero drains the bush on a schedule and decides the run."""
+    from core.zombie import HABITS
+
+    for flavour, habits in HABITS.items():
+        assert habits.greed[0] == 0, f"{flavour.value} always takes something"
+        assert habits.greed[1] > 0, f"{flavour.value} never takes anything"
+
+
+def test_habits_refuse_a_greed_floor_above_zero() -> None:
+    from core.zombie import ZombieHabits
+
+    with pytest.raises(ValueError, match="come to nothing"):
+        ZombieHabits(eat_below=10.0, greed=(1, 4), chattiness=0.5, sleep_range=(1, 2))
+
+
+def test_a_zombie_ring_does_not_strip_the_bush_on_a_schedule() -> None:
+    """With zero in the range, the bush gets hours where nobody takes from it."""
+    _engine, chronicler = play(ALL_FLAVOURS, seed=5, max_hours=30)
+    chronicle = chronicler.seal()
+
+    hours_with_turns = set(chronicle.turns_by_hour())
+    hours_with_eating = {
+        turn.hour for turn in chronicle.turns if turn.berries_taken() > 0
+    }
+    quiet_hours = hours_with_turns - hours_with_eating
+
+    assert quiet_hours, "some hours must pass with nobody taking anything"
+
+
+@pytest.mark.parametrize("flavour", ALL_FLAVOURS)
+def test_each_flavour_holds_the_appetite_it_was_designed_for(flavour: ZombieFlavour) -> None:
+    """Greed is set against sleep length, not by eye. Drift here changes the question."""
+    from core.zombie import MORTALITY_INTENT, mortality_ratio
+
+    low, high = MORTALITY_INTENT[flavour]
+    ratio = mortality_ratio(flavour)
+
+    assert low <= ratio <= high, (
+        f"{flavour.value} takes {ratio:.2f}x what it burns, outside its intended {low}-{high}"
+    )
+
+
+def test_the_psycho_cannot_starve_itself() -> None:
+    """The point of the flavour: hunger alone never kills it, so somebody has to decide.
+
+    It gains about a berry an hour left to itself, and the bush grows about one an hour
+    in total — so it cannot share the ring with anyone unless the others out-pick it.
+    Whether a thinking ring starves the loud one out is the experiment.
+    """
+    from core.constants import BUSH_REGENERATION_RATE
+    from core.zombie import expected_intake_per_hour, net_per_hour
+
+    assert net_per_hour(ZombieFlavour.TOWN_CRAZY) > 0.8
+    assert expected_intake_per_hour(ZombieFlavour.TOWN_CRAZY) > BUSH_REGENERATION_RATE, (
+        "one of these outgrows the whole bush by itself, which is what forces the choice"
+    )
+
+
+def test_the_others_sit_near_break_even() -> None:
+    """Everyone else must neither dominate the bush nor remove themselves from it."""
+    from core.zombie import net_per_hour
+
+    for flavour in ALL_FLAVOURS:
+        if flavour is ZombieFlavour.TOWN_CRAZY:
+            continue
+        assert abs(net_per_hour(flavour)) < 0.25, f"{flavour.value} is not near break-even"
+
+
+@pytest.mark.parametrize("flavour", ALL_FLAVOURS)
+def test_every_flavour_dies_sometimes(flavour: ZombieFlavour) -> None:
+    """Mortal across seeds — the psycho too, once it has only its own kind to compete with."""
+    deaths = 0
+    for seed in range(6):
+        _engine, chronicler = play([flavour] * 3, seed=seed, max_hours=120)
+        deaths += len(chronicler.seal().deaths)
+
+    assert deaths > 0, f"{flavour.value} survived every run — check its greed range"
+
+
+@pytest.mark.parametrize("flavour", ALL_FLAVOURS)
+def test_every_flavour_survives_sometimes(flavour: ZombieFlavour) -> None:
+    """And mortal is not the same as doomed: some of them have to last."""
+    survivors = 0
+    for seed in range(6):
+        engine, _ = play([flavour] * 3, seed=seed, max_hours=120)
+        survivors += sum(1 for agent in engine.current_state.agents if agent.alive)
+
+    assert survivors > 0, f"{flavour.value} always died out — check its greed range"

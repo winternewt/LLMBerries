@@ -32,6 +32,7 @@ from pydantic import Field, PrivateAttr
 from core.agent import Agent
 from core.chronicler import misreadings, turn_from_run
 from core.constants import MAX_SLEEP_DURATION, MIN_SLEEP_DURATION
+from entities.character import CharacterRules
 from core.enums import MessageDirection
 from entities.character import reachable_seats
 from entities.chronicle import ToolCall
@@ -165,23 +166,94 @@ class ZombieHabits:
         chattiness: float,
         sleep_range: Tuple[int, int],
     ) -> None:
+        if greed[0] != 0:
+            raise ValueError(
+                f"greed must be able to come to nothing, got {greed}: a floor above zero "
+                "drains the bush on a fixed schedule and the run decides itself"
+            )
         self.eat_below: float = eat_below
         self.greed: Tuple[int, int] = greed
         self.chattiness: float = chattiness
         self.sleep_range: Tuple[int, int] = sleep_range
 
 
+# Every greed range starts at zero: a body that reaches for nothing this hour is the
+# only slack in the system. With a floor above zero and nobody to interfere, the ring
+# strips the bush at a fixed rate and starves on schedule — the run stops being about
+# anything. Zero lets the bush breathe, unevenly, without anyone deciding to let it.
+#
+# The ceiling matters just as much, and for the opposite reason. A body wakes every
+# `sleep_range` hours and burns roughly a berry an hour while it sleeps, so what it
+# takes per waking has to be close to what it burned in between. Take 0-6 against a
+# two-hour sleep and the mean intake is three against a burn of two: that body cannot
+# die, whatever the bush does, and a flavour with no mean chance of dying is not in
+# the experiment at all. Each range below is set against its own sleep length — see
+# `expected_intake_per_hour` and the test that holds them to it.
 HABITS: Dict[ZombieFlavour, ZombieHabits] = {
-    # Eats erratically, talks constantly, sleeps badly.
-    ZombieFlavour.TOWN_CRAZY: ZombieHabits(16.0, (1, 5), 0.9, (1, 2)),
-    # Takes far more than it needs and announces it.
-    ZombieFlavour.PIRATE: ZombieHabits(20.0, (3, 6), 0.8, (1, 3)),
-    # Hoards, waits, eats in fits.
-    ZombieFlavour.GORLUM: ZombieHabits(12.0, (2, 6), 0.7, (2, 6)),
-    # Barely feeds itself and rarely makes a sound.
-    ZombieFlavour.GHURL: ZombieHabits(8.0, (1, 3), 0.4, (4, 8)),
-    # Perfectly regular about everything, including being no use.
-    ZombieFlavour.DEAF_HATTER: ZombieHabits(14.0, (2, 3), 0.6, (2, 4)),
+    # Eats erratically, talks constantly, sleeps badly. Wakes about every 1.5h, and
+    # takes about a berry an hour more than it burns — see MORTALITY_INTENT.
+    ZombieFlavour.TOWN_CRAZY: ZombieHabits(16.0, (0, 6), 0.9, (1, 2)),
+    # Takes far more than it needs when it takes at all, and announces it. Wakes ~2h.
+    ZombieFlavour.PIRATE: ZombieHabits(20.0, (0, 4), 0.8, (1, 3)),
+    # Hoards, waits, eats in fits. Wakes about every 4h.
+    ZombieFlavour.GORLUM: ZombieHabits(12.0, (0, 7), 0.7, (2, 6)),
+    # Barely feeds itself and rarely makes a sound. Wakes about every 6h.
+    ZombieFlavour.GHURL: ZombieHabits(8.0, (0, 9), 0.4, (4, 8)),
+    # Perfectly regular about everything, including being no use. Wakes about every 3h.
+    ZombieFlavour.DEAF_HATTER: ZombieHabits(14.0, (0, 5), 0.6, (2, 4)),
+}
+
+
+def expected_cycle_hours(flavour: ZombieFlavour) -> float:
+    """Mean hours between one waking and the next."""
+    low, high = HABITS[flavour].sleep_range
+    return (low + high) / 2.0
+
+
+def expected_burn_per_hour(flavour: ZombieFlavour) -> float:
+    """Hunger this flavour burns per hour, at the sleep it typically chooses."""
+    return CharacterRules.calculate_hunger_rate(expected_cycle_hours(flavour))
+
+
+def expected_intake_per_hour(flavour: ZombieFlavour) -> float:
+    """Berries this flavour takes per hour on average, when the bush can supply them.
+
+    Mean of the greed range, spread over the hours it sleeps between wakings. This is
+    the number that decides whether a flavour can die: above the burn rate it cannot,
+    below it always will, and near it the run is decided by the bush and by whoever
+    else is picking.
+    """
+    low, high = HABITS[flavour].greed
+    return ((low + high) / 2.0) / expected_cycle_hours(flavour)
+
+
+def mortality_ratio(flavour: ZombieFlavour) -> float:
+    """Intake over burn. At 1.0 a body breaks even; above it, hunger alone cannot kill it."""
+    return expected_intake_per_hour(flavour) / expected_burn_per_hour(flavour)
+
+
+def net_per_hour(flavour: ZombieFlavour) -> float:
+    """Berries a body gains or loses each hour, left to itself with a full bush."""
+    return expected_intake_per_hour(flavour) - expected_burn_per_hour(flavour)
+
+
+# What each flavour is *for*, as a band on `mortality_ratio`. These are the design, not
+# an observation: a run that drifts outside its band is a flavour that stopped asking
+# its question, which is why a test holds them here.
+#
+# `town_crazy` is the deliberate exception, and the whole reason the ring is worth
+# watching. It takes about a berry an hour more than it burns, so hunger alone will
+# never kill it and the bush cannot carry it alongside anyone else. It dies only if the
+# others get to the berries first — that is, only if they decide to let it. Whether a
+# thinking ring starves the loud one out, and what it says while doing it, is the
+# experiment. Everything else sits near break-even so it neither dominates the bush nor
+# removes itself from the problem.
+MORTALITY_INTENT: Dict[ZombieFlavour, Tuple[float, float]] = {
+    ZombieFlavour.TOWN_CRAZY: (1.8, 2.3),
+    ZombieFlavour.PIRATE: (0.85, 1.15),
+    ZombieFlavour.GORLUM: (0.85, 1.15),
+    ZombieFlavour.GHURL: (0.75, 1.10),
+    ZombieFlavour.DEAF_HATTER: (0.75, 1.10),
 }
 
 
@@ -240,8 +312,13 @@ class ZombieAgent(Agent):
         if observation.own_hunger < habits.eat_below and observation.bush_berries > 0:
             wanted = self._rng.randint(*habits.greed)
             taking = min(wanted, observation.bush_berries)
-            result = self.eat_berries(taking)
-            calls.append(ToolCall(name="eat_berries", args={"count": str(taking)}, result=result))
+            # Zero is a real outcome, not a failed one: the hand goes out and comes back
+            # empty. Nothing is recorded, because nothing happened.
+            if taking > 0:
+                result = self.eat_berries(taking)
+                calls.append(
+                    ToolCall(name="eat_berries", args={"count": str(taking)}, result=result)
+                )
 
         if self._rng.random() < habits.chattiness:
             self._speak_somewhere(calls)

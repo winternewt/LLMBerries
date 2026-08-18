@@ -121,6 +121,14 @@ reliably yields deaths, corpse-talk and `unheard` entries with no key at all.
   never reads as twitching.
 - They record turns with `provider="zombie:<flavour>"`, so the chronicle says which seats
   were empty and the narrator can tell a babbler from a negotiator.
+- **Appetite is derived, not guessed.** `expected_intake_per_hour` divides mean greed by
+  mean sleep length and `MORTALITY_INTENT` states the band each flavour must land in; a
+  test holds them there. Greed floors are all zero — a floor above zero drains the bush on
+  a schedule and the run decides itself before anyone acts.
+- **`town_crazy` is deliberately unkillable by hunger** (+1 berry/hour net, more than the
+  whole bush regrows). It exists so the ring has to choose whether to starve it out. Do
+  not "fix" its ratio to match the others: that band is the experiment. Everything else
+  sits within ±0.25 berries/hour of break-even.
 
 ## The story layer
 

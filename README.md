@@ -145,6 +145,28 @@ Each flavour has its own appetite, chattiness and sleep habits, so they diverge 
 as well as in speech. Behaviour is seeded — the same `--seed` replays the same game, and
 seats are mixed into the seed so a ring of identical flavours is not a chorus.
 
+**Appetite is set against sleep, not by eye.** A body wakes every few hours and burns
+about a berry an hour while it sleeps, so what it takes per waking is tuned against what
+it burned in between. Every greed range starts at zero — a hand that comes back empty is
+the only slack in the system, and a floor above zero strips the bush on a fixed schedule
+and decides the run before anyone acts.
+
+| Flavour | Takes/hour | Burns/hour | Net | Design |
+|---------|-----------|-----------|-----|--------|
+| `town_crazy` | 2.00 | 0.97 | **+1.02** | cannot starve itself |
+| `pirate` | 1.00 | 0.95 | +0.05 | break-even |
+| `gorlum` | 0.88 | 0.85 | +0.03 | break-even |
+| `ghurl` | 0.75 | 0.75 | 0.00 | break-even |
+| `deaf_hatter` | 0.83 | 0.90 | −0.07 | break-even |
+
+**The psycho is the question.** `town_crazy` gains about a berry an hour left to itself,
+and the bush grows about one an hour *in total* — so hunger will never kill it, and it
+cannot share the ring with anyone unless the others out-pick it. It dies only if the
+others get there first, which is to say only if they decide to let it. **Whether a
+thinking ring starves the loud one out, and what it says while doing so, is the
+experiment.** Among zombies nobody decides anything and it simply wins: across seeds
+1-3 it outlived the ring every time, eating 39-44 berries to the next body's 24-32.
+
 **Something is visibly off about them.** A zombie reads as unhinged to whoever is
 watching about **70%** of the time, whatever it is actually doing — but not always, so
 the ring cannot simply sort the empty ones from the thinking ones by looking. A body that
