@@ -40,6 +40,20 @@ template in `.env.template`.
 - **Every model call goes through its provider's pacer** (`core/pacing.py`). Agents sharing
   a key share one limiter, because they share one quota.
 
+## The story layer
+
+`entities/chronicle.py` (frozen record) → `core/chronicler.py` (collects turns, hears
+deaths off the event bus) → `core/narrator.py` (deterministic transcript, then a
+chaptered story from a model). Agents write into a `Chronicler` if given one; nothing
+in that path touches game state.
+
+- **An absent reasoning trace stays `None`.** Never `""`, never a paraphrase of what the
+  agent probably thought. `has_reasoning()` reports whether any provider exposed one.
+- **The narrator may only use the transcript.** Its brief forbids inventing thoughts and
+  requires it to say when reasoning was not captured. If that brief is edited, keep that
+  clause — the point of the whole layer is the agents' own stated reasons.
+- A lost turn (failed model call) is recorded as a turn, marked `TURN LOST`, not dropped.
+
 ## Gotchas learned here
 
 - **Agno does not raise on an API error.** It logs, sets `RunOutput.status = ERROR` and
@@ -51,6 +65,9 @@ template in `.env.template`.
   them). Hence `LLMAgent` builds the system message as a string per turn instead.
 - **Agno strips stored system messages from replayed history**, which is what makes
   swapping the observation in every turn safe.
+- **Agno's tool loop calls the model once per tool**, so pacing only `run()` covered one
+  call in a turn of six. `LLMAgent` passes a `tool_hooks` entry that acquires the pacer
+  before each tool, which tracks the loop.
 - `AgentDecisionCallback` must stay `@runtime_checkable`: `GameEngine` is a Pydantic model
   and cannot build a validator for a plain Protocol.
 

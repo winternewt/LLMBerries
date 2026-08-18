@@ -13,6 +13,8 @@ from agno.agent import Agent as AgnoAgent
 from agno.run.base import RunStatus
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from core.chronicler import Chronicler, turn_from_run
+from entities.chronicle import ToolCall
 from core.commands import (
     EatBerriesCommand,
     FinishTurnCommand,
@@ -41,6 +43,9 @@ class Agent(BaseModel, ABC):
 
     agent_id: int = Field(ge=0, description="Which seat in the circle this agent occupies")
     engine: GameEngine = Field(description="Engine the agent's commands are executed against")
+    chronicler: Optional[Chronicler] = Field(
+        default=None, description="Records the turn for the narrator; None means nothing is kept"
+    )
 
     TOOLS_DESCRIPTION: ClassVar[str] = """You can:
 1. think() - Think about your situation and your actions.
@@ -187,6 +192,23 @@ For 1 and 2 you only get a response on your next turn.
         ]
 
 
+def _tool_calls_from(output: object) -> Tuple[ToolCall, ...]:
+    """Read the tools a run actually executed, in the order it called them."""
+    executions = getattr(output, "tools", None) or ()
+    calls = []
+    for execution in executions:
+        raw_args = getattr(execution, "tool_args", None) or {}
+        calls.append(
+            ToolCall(
+                name=getattr(execution, "tool_name", "unknown") or "unknown",
+                args={str(key): str(value) for key, value in raw_args.items()},
+                result=(getattr(execution, "result", None) or None),
+                failed=bool(getattr(execution, "tool_call_error", False)),
+            )
+        )
+    return tuple(calls)
+
+
 class ScriptedAgent(Agent):
     """A deterministic agent that plays by a fixed rule, making no API calls.
 
@@ -201,11 +223,38 @@ class ScriptedAgent(Agent):
     sleep_hours: int = Field(default=1, ge=1, description="Hours slept after acting")
 
     def decide(self, observation: AgentObservation) -> None:
+        calls: List[ToolCall] = []
+
         if observation.own_hunger < self.eat_below_hunger:
             available = min(self.berries_per_meal, observation.bush_berries)
             if available > 0:
-                self.eat_berries(available)
-        self.choose_sleep_duration(self.sleep_hours)
+                result = self.eat_berries(available)
+                calls.append(
+                    ToolCall(name="eat_berries", args={"count": str(available)}, result=result)
+                )
+
+        result = self.choose_sleep_duration(self.sleep_hours)
+        calls.append(
+            ToolCall(
+                name="choose_sleep_duration",
+                args={"hours": str(self.sleep_hours)},
+                result=result,
+            )
+        )
+
+        if self.chronicler is not None:
+            self.chronicler.record(
+                turn_from_run(
+                    hour=self.engine.current_state.world_time,
+                    agent_id=self.agent_id,
+                    agent_name=observation.agent_name,
+                    hunger=observation.own_hunger,
+                    bush_berries=observation.bush_berries,
+                    neighbours=(str(observation.leftie), str(observation.rightie)),
+                    heard=(),
+                    tool_calls=tuple(calls),
+                )
+            )
 
 
 class LLMAgent(Agent):
@@ -253,31 +302,68 @@ class LLMAgent(Agent):
             return "Nothing has been said to you since your last turn."
         return "Since your last turn:\n" + "\n".join(f"- {line}" for line in heard)
 
+    def _paced_tool(self, function_name: str, function_call, arguments: dict):
+        """Pace the model call that follows each tool result.
+
+        Agno's tool loop calls the model again after every tool, so pacing only the
+        outer run() covered one call in a turn of five or six. The hook runs once per
+        tool, which tracks the loop closely enough to keep a free tier happy.
+        """
+        get_provider_pacer(self.provider).acquire()
+        return function_call(**arguments)
+
     def decide(self, observation: AgentObservation) -> None:
+        observation_hour = self.engine.current_state.world_time
         agno_agent = AgnoAgent(
             name=observation.agent_name,
             model=self._model,
             system_message=self._system_message(observation),
             tools=self.tools(),
+            tool_hooks=[self._paced_tool],
             tool_call_limit=self.max_tool_calls,
             add_history_to_context=False,  # history is the game's, not the framework's
             telemetry=False,
         )
 
-        get_provider_pacer(self.provider).acquire()
-        output = agno_agent.run(self._pending_messages())
+        heard = self._pending_messages()
 
-        if output.status == RunStatus.error:
+        get_provider_pacer(self.provider).acquire()
+        output = agno_agent.run(heard)
+
+        turn_lost = output.status == RunStatus.error
+        if turn_lost:
             # A refused call is not a decision. The engine ends the turn, so the
-            # agent simply loses it — recorded here rather than silently skipped.
+            # agent simply loses it — recorded rather than silently skipped.
             logger.warning(
                 "%s (%s): turn lost, model call failed: %s",
                 observation.agent_name,
                 self.provider.name,
                 (output.content or "no content")[:200],
             )
-            return
+        else:
+            logger.info(
+                "%s (%s): %s",
+                observation.agent_name,
+                self.provider.name,
+                (output.content or "").strip()[:200],
+            )
 
-        logger.info(
-            "%s (%s): %s", observation.agent_name, self.provider.name, (output.content or "").strip()[:200]
-        )
+        if self.chronicler is not None:
+            self.chronicler.record(
+                turn_from_run(
+                    hour=observation_hour,
+                    agent_id=self.agent_id,
+                    agent_name=observation.agent_name,
+                    hunger=observation.own_hunger,
+                    bush_berries=observation.bush_berries,
+                    neighbours=(str(observation.leftie), str(observation.rightie))
+                    + tuple(str(other) for other in observation.distant),
+                    heard=tuple(line for line in heard.splitlines() if line.startswith("- ")),
+                    provider=self.provider.name,
+                    model_id=self.provider.model_id,
+                    output=output,
+                    tool_calls=_tool_calls_from(output),
+                    turn_lost=turn_lost,
+                    error=(output.content or "")[:300] if turn_lost else None,
+                )
+            )

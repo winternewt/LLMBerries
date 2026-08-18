@@ -42,6 +42,13 @@ uv run python main.py --agents 3 --providers google,groq
 # Play without spending a single call — deterministic, rule-based agents
 uv run python main.py --scripted --agents 5
 
+# Play, then have the run narrated as a story about why they did it
+uv run python main.py --agents 3 --providers groq,google \
+    --chronicle run.json --transcript run.txt --story story.md
+
+# Narrate a game you already played (--transcript-only needs no key)
+uv run python scripts/narrate.py run.json --out story.md
+
 # Run tests (no API calls, no mocks)
 uv run pytest tests/
 ```
@@ -110,6 +117,25 @@ See `ARCHITECTURE.md` for detailed architecture decisions.
 See `DESIGN.md` for complete game rules and mechanics.
 
 ---
+
+## 📖 Output: stories, not log files
+
+A run leaves three artifacts, in rising order of interpretation:
+
+| Flag | What it is |
+|------|-----------|
+| `--chronicle run.json` | Structured record: every turn, the model's own reasoning trace where the provider returns one, every tool call, everything the agent heard |
+| `--transcript run.txt` | The same record as readable text. No model involved, so nothing is invented |
+| `--story story.md` | A narrator model reads the transcript in chapters and tells the story — what each agent reasoned, what it believed about its neighbours, where that belief was wrong |
+
+The narrator is held to the transcript: it is instructed to quote recorded reasoning,
+to name where a strategy formed and where it failed, and to say plainly when an
+agent's reasoning was *not* captured rather than inventing a motive. Chapters break at
+deaths, because that is where the story turns.
+
+**Reasoning capture** depends on the provider. Both `groq` (gpt-oss-120b) and `google`
+(gemini-3.7-flash) return a reasoning trace through Agno; where a provider returns
+none, the record holds `None`, never an empty string standing in for a thought.
 
 ## 🔬 Research Dimensions
 

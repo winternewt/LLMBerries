@@ -15,10 +15,15 @@
   - Agno keeps it in `RunOutput.messages`, but the game's own record should not
     depend on the framework. Needed before any cross-model comparison is credible.
 
-- [ ] **Turn-loss accounting**
-  - A refused or errored model call currently costs the agent its turn and emits a
-    log line. It should be an event, so a run can report how many turns were lost
-    and to which provider.
+- [ ] **Turn-loss accounting as an event**
+  - A refused model call is now recorded in the chronicle (`turn_lost`, and
+    `turns_lost` per agent) and shows in the transcript. It is still not a `GameEvent`,
+    so a bus subscriber cannot see it happen live.
+
+- [ ] **Narrator quality**
+  - Chapters carry only the previous two passages as context, so a long game can lose
+    the thread of an early alliance.
+  - The closing passage repeats material from the last chapter.
 
 ---
 
