@@ -190,6 +190,10 @@ class GameChronicle(BaseModel):
         """Words that landed nowhere in this hour."""
         return tuple(item for item in self.unheard if item.hour == hour)
 
+    def turns_lost(self) -> int:
+        """Turns nobody got to take because a provider refused."""
+        return sum(1 for turn in self.turns if turn.turn_lost)
+
     def has_reasoning(self) -> bool:
         """Whether any provider in this run actually exposed its reasoning."""
         return any(turn.reasoning for turn in self.turns)

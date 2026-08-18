@@ -74,6 +74,29 @@ def build_agents(
     ]
 
 
+def report_losses(record) -> None:
+    """Say plainly when a run was decided by refused calls rather than by choices."""
+    lost = record.turns_lost()
+    total = len(record.turns)
+    if lost == 0:
+        return
+
+    share = lost / total if total else 0.0
+    typer.echo("")
+    typer.echo(f"  WARNING: {lost}/{total} turns were lost to refused model calls.")
+    for summary in record.agents:
+        if summary.turns_lost:
+            typer.echo(
+                f"    {summary.name} ({summary.provider or 'scripted'}): "
+                f"{summary.turns_lost}/{summary.turns_taken} lost"
+            )
+    if share >= 0.25:
+        typer.echo(
+            "    Most of this game was decided by calls that never happened, not by "
+            "anything the agents chose. Read the outcome as a quota failure."
+        )
+
+
 def report(engine: GameEngine) -> None:
     state = engine.current_state
     survivors = [agent for agent in state.agents if agent.alive]
@@ -157,6 +180,7 @@ def play(
 
     report(engine)
     record = chronicler.seal()
+    report_losses(record)
 
     if chronicle_out is not None:
         save_chronicle(record, chronicle_out)

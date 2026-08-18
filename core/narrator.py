@@ -53,10 +53,6 @@ def _describe_turn(turn: TurnRecord) -> str:
         + f" — hunger {turn.hunger:.1f}, bush {turn.bush_berries} berries"
     ]
 
-    if turn.turn_lost:
-        lines.append(f"  TURN LOST: {turn.error or 'model call failed'}")
-        return "\n".join(lines)
-
     for neighbour in turn.neighbours:
         lines.append(f"  sees: {neighbour}")
     for heard in turn.heard:
@@ -70,8 +66,13 @@ def _describe_turn(turn: TurnRecord) -> str:
         if call.result:
             detail += f" -> {call.result}"
         lines.append(detail)
-    if turn.said_aloud:
+    if turn.said_aloud and not turn.turn_lost:
         lines.append(f"  summed up: {turn.said_aloud}")
+    if turn.turn_lost:
+        # The observation was real and the misreadings were measured; only the
+        # decision is missing. Dropping the whole block hid what they were looking
+        # at when their voice failed them.
+        lines.append(f"  TURN LOST — took no action: {turn.error or 'model call failed'}")
 
     return "\n".join(lines)
 

@@ -136,6 +136,19 @@ in that path touches game state.
 - `AgentDecisionCallback` must stay `@runtime_checkable`: `GameEngine` is a Pydantic model
   and cannot build a validator for a plain Protocol.
 
+## Free-tier ceilings, learned the hard way
+
+Groq's free tier caps **tokens per day at 200k**, not just per minute. A 3-agent,
+27-hour game exhausted it and then lost 59 of 60 turns to `rate_limit_exceeded` — the
+ring starved to extinction because nobody could act, which is a quota failure wearing
+the costume of a result. `main.py` now warns when turns were lost, and says outright
+when a quarter or more of them were. Read any outcome with a warning attached as an
+artifact, not a finding.
+
+Budget roughly: one turn costs several calls (the tool loop), so a 3-agent game runs
+~2-4k tokens per game hour on gpt-oss-120b. Google's free tier has its own daily cap but
+is far from exhausted; narrate with `--narrator google` when Groq has been playing.
+
 ## Provider status (2026-08-18)
 
 `google` (gemini-3.7-flash) and `groq` (openai/gpt-oss-120b) answer on the current keys.

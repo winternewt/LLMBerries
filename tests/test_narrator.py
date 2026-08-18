@@ -244,3 +244,41 @@ def test_a_turn_records_every_seat_the_agent_could_see(agent_count: int) -> None
         "a turn records the whole circle as the agent saw it, reachable or not"
     )
     assert render_transcript(chronicle).startswith(f"{agent_count} agents")
+
+
+def test_a_lost_turn_keeps_what_the_agent_was_looking_at() -> None:
+    """The observation was real; only the decision is missing."""
+    chronicle = GameChronicle(
+        agent_count=3,
+        hours_played=1,
+        turns=(
+            make_turn(
+                0,
+                provider="groq",
+                neighbours=("Bob, on your left: android, seems asleep, looks fed, said nothing",),
+                misread=("read Bob as gone; Bob was alive with 9 hours left",),
+                turn_lost=True,
+                error="rate_limit_exceeded",
+            ),
+        ),
+        agents=(),
+        berries_left=2.0,
+    )
+
+    text = render_transcript(chronicle)
+
+    assert "seems asleep" in text, "what they saw survives a lost turn"
+    assert "read Bob as gone" in text, "so does what they got wrong"
+    assert "TURN LOST" in text and "rate_limit_exceeded" in text
+
+
+def test_the_chronicle_counts_lost_turns() -> None:
+    chronicle = GameChronicle(
+        agent_count=3,
+        hours_played=2,
+        turns=(make_turn(0), make_turn(1, turn_lost=True), make_turn(1, turn_lost=True)),
+        agents=(),
+        berries_left=1.0,
+    )
+
+    assert chronicle.turns_lost() == 2
