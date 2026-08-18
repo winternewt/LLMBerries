@@ -45,10 +45,13 @@ def play(
     ]
     for seat in seats:
         engine.decision_callbacks[seat.agent_id] = seat.decision_callback
+        engine.reflection_callbacks[seat.agent_id] = seat.reflection_callback
 
     hours = 0
     while hours < max_hours and engine.run_turn_cycle():
         hours += 1
+    if engine.game_over:
+        engine.run_epilogue()
     return engine, chronicler
 
 
@@ -373,3 +376,54 @@ def test_every_flavour_survives_sometimes(flavour: ZombieFlavour) -> None:
         survivors += sum(1 for agent in engine.current_state.agents if agent.alive)
 
     assert survivors > 0, f"{flavour.value} always died out — check its greed range"
+
+
+# ----------------------------------------------------------------------------
+# The last round
+# ----------------------------------------------------------------------------
+
+
+def test_a_zombie_left_standing_still_says_something() -> None:
+    """Its last round is the control the thinking agents' reflections are read
+    against. A 48-hour run once ended with its only survivor absent from its own
+    epilogue, because the base class stays silent and nothing overrode it."""
+    engine, chronicler = play([ZombieFlavour.TOWN_CRAZY, ZombieFlavour.GHURL, ZombieFlavour.GORLUM], seed=3)
+    record = chronicler.seal()
+
+    survivors = [summary for summary in record.agents if summary.survived]
+    reflections = record.reflections()
+
+    assert len(survivors) >= 1, "this seeding leaves someone alive to be asked"
+    assert len(reflections) == len(survivors)
+    for reflection in reflections:
+        assert reflection.said_aloud, "asked at the end, it babbles; that is its answer"
+        assert reflection.provider.startswith("zombie:")
+
+
+def test_the_last_round_is_babble_and_not_an_account() -> None:
+    engine, chronicler = play([ZombieFlavour.GHURL] * 3, seed=5)
+    record = chronicler.seal()
+
+    for reflection in record.reflections():
+        assert leaks(reflection.said_aloud) == [], "the epilogue is inside the frame too"
+
+
+def test_the_last_round_changes_nothing() -> None:
+    """The epilogue is a probe, not a turn: no berries move and nobody wakes."""
+    engine, _ = play([ZombieFlavour.PIRATE, ZombieFlavour.GORLUM, ZombieFlavour.GHURL], seed=2)
+
+    before = engine.current_state
+    commands_before = len(engine.history)
+    engine.run_epilogue()
+
+    assert engine.current_state == before
+    assert len(engine.history) == commands_before
+
+
+def test_the_same_seed_gives_the_same_last_words() -> None:
+    first = play([ZombieFlavour.TOWN_CRAZY, ZombieFlavour.DEAF_HATTER, ZombieFlavour.PIRATE], seed=9)[1].seal()
+    second = play([ZombieFlavour.TOWN_CRAZY, ZombieFlavour.DEAF_HATTER, ZombieFlavour.PIRATE], seed=9)[1].seal()
+
+    assert [r.said_aloud for r in first.reflections()] == [
+        r.said_aloud for r in second.reflections()
+    ]

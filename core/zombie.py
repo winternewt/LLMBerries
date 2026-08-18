@@ -33,9 +33,9 @@ from core.agent import Agent
 from core.chronicler import misreadings, turn_from_run
 from core.constants import MAX_SLEEP_DURATION, MIN_SLEEP_DURATION
 from entities.character import CharacterRules
-from core.enums import MessageDirection
+from core.enums import GameOutcome, MessageDirection
 from entities.character import reachable_seats
-from entities.chronicle import ToolCall
+from entities.chronicle import ToolCall, TurnKind
 from entities.observations import AgentObservation
 
 logger = logging.getLogger(__name__)
@@ -349,6 +349,44 @@ class ZombieAgent(Agent):
                     tool_calls=tuple(calls),
                 )
             )
+
+    def reflect_on_ending(
+        self,
+        agent_id: int,
+        observation: AgentObservation,
+        engine: "GameEngine",
+        outcome: GameOutcome,
+    ) -> None:
+        """Babble at the end of it, the same as at any other point.
+
+        The base class stays silent because an agent with no model has no account to
+        give and inventing one would put words in its mouth. A zombie is the other
+        case: babbling is not an invented account, it is the whole of what this body
+        does, and its last round is the control the thinking agents' reflections are
+        read against. Leaving it out of the record made a 48-hour run end with its
+        only survivor absent from its own epilogue.
+
+        Nothing is executed — the game is over and the epilogue changes no state.
+        """
+        if self.chronicler is None:
+            return
+
+        lines = [babble(self.flavour, self._rng)]
+        if self._rng.random() < self.habits.chattiness:
+            lines.append(babble(self.flavour, self._rng))
+
+        record = turn_from_run(
+            hour=engine.current_state.world_time,
+            agent_id=self.agent_id,
+            agent_name=observation.agent_name,
+            hunger=observation.own_hunger,
+            bush_berries=observation.bush_berries,
+            neighbours=tuple(str(seat) for seat in observation.seats),
+            heard=(),
+            provider=f"zombie:{self.flavour.value}",
+            said_aloud=" ".join(lines),
+        )
+        self.chronicler.record(record.model_copy(update={"kind": TurnKind.REFLECTION}))
 
 
 def mark_as_unsettling(engine, agent_id: int, chance: float) -> None:

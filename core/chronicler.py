@@ -164,6 +164,7 @@ def turn_from_run(
     provider: Optional[str] = None,
     model_id: Optional[str] = None,
     output: Optional[object] = None,
+    said_aloud: Optional[str] = None,
     tool_calls: tuple = (),
     misread: tuple = (),
     error: Optional[str] = None,
@@ -171,10 +172,11 @@ def turn_from_run(
     """Build a `TurnRecord`, pulling reasoning off an Agno run output when there is one.
 
     `reasoning` stays None when the provider returned nothing — an absent trace is
-    not the same as an agent that reasoned about nothing.
+    not the same as an agent that reasoned about nothing. `said_aloud` is for a
+    speaker with no run output behind it, which is what a zombie is.
     """
     reasoning: Optional[str] = None
-    said: Optional[str] = None
+    said: Optional[str] = said_aloud
 
     if output is not None and error is None:
         # On a failed run Agno puts the provider's error JSON in `content`. Reading it

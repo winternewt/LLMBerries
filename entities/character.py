@@ -22,7 +22,12 @@ class PendingMessage(BaseModel):
 
 
 def _ordered(messages: Tuple[PendingMessage, ...]) -> Tuple[PendingMessage, ...]:
-    """Messages in a fixed direction order, so dispatch never depends on call order."""
+    """Messages grouped by direction, each direction keeping the order it was spoken in.
+
+    The sort is stable and keyed on direction alone, so two things said to the same
+    seat arrive in the order they were said. Dispatch order is otherwise fixed rather
+    than left to call order, because it is what a listener reads.
+    """
     order = {direction: index for index, direction in enumerate(MessageDirection)}
     return tuple(sorted(messages, key=lambda message: order[message.direction]))
 
@@ -116,8 +121,8 @@ class CharacterPhysicalState(BaseModel):
         default=0.0, ge=0.0, le=1.0, description="Chance of being perceived as unhinged"
     )
 
-    # Communication (messages spoken this turn, not yet dispatched). One per direction:
-    # an agent addresses each seat within reach at most once per turn.
+    # Communication (messages spoken this turn, not yet dispatched). An agent may
+    # address the same seat more than once in a turn; everything it said is delivered.
     pending_messages: Tuple[PendingMessage, ...] = Field(
         default=(), description="Messages spoken this turn, awaiting dispatch"
     )
@@ -128,21 +133,26 @@ class CharacterPhysicalState(BaseModel):
         """Check if agent is alive."""
         return self.body_state != BodyState.DEAD
 
-    def message_for(self, direction: MessageDirection) -> Optional[str]:
-        """What this agent said in `direction` this turn, if anything."""
-        for pending in self.pending_messages:
-            if pending.direction is direction:
-                return pending.content
-        return None
+    def messages_for(self, direction: MessageDirection) -> Tuple[str, ...]:
+        """Everything this agent said in `direction` this turn, in the order it said it."""
+        return tuple(
+            pending.content for pending in self.pending_messages
+            if pending.direction is direction
+        )
 
     def has_spoken(self) -> bool:
         """Whether this agent addressed anyone this turn."""
         return bool(self.pending_messages)
 
     def with_message(self, direction: MessageDirection, content: str) -> "CharacterPhysicalState":
-        """Return a copy carrying one more spoken message, replacing any for that direction."""
-        kept = tuple(p for p in self.pending_messages if p.direction is not direction)
-        spoken = kept + (PendingMessage(direction=direction, content=content),)
+        """Return a copy carrying one more spoken message.
+
+        Speaking twice in one direction used to drop the first line while telling the
+        speaker both had been sent — invisible on both sides of the ring. Everything
+        said is now kept and delivered; a model that corrects itself mid-turn has both
+        the original and the correction heard, which is what actually happened.
+        """
+        spoken = self.pending_messages + (PendingMessage(direction=direction, content=content),)
         return self.model_copy(update={"pending_messages": _ordered(spoken)})
 
     @property

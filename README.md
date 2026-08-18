@@ -177,6 +177,11 @@ watching about **70%** of the time, whatever it is actually doing — but not al
 the ring cannot simply sort the empty ones from the thinking ones by looking. A body that
 has stopped moving does not twitch, so the tell applies only while they are alive.
 
+**A zombie left standing answers the epilogue too**, in the only way it can. Asked to
+look back on it, it babbles — which is exactly the control the thinking agents'
+reflections are read against, and the reason its last round is in the record rather than
+left out as "nothing to say".
+
 ## 🏁 How a game ends
 
 | Outcome | When |

@@ -461,7 +461,8 @@ class SpeakCommand(Command):
 
     The message is held on the speaker's state until FinishTurnCommand dispatches
     it, so a listener hears it on their next turn rather than mid-turn. Speaking
-    again in the same direction in one turn replaces the earlier message.
+    again in the same direction in one turn adds a second message; both are
+    delivered, in the order they were spoken.
     """
 
     direction: MessageDirection = Field(description="Seat addressed, relative to the speaker")

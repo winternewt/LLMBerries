@@ -123,7 +123,10 @@ def test_a_direction_that_does_not_exist_is_refused_with_the_reachable_set() -> 
     assert "left, right" in events[0].message, "the refusal names what it could have said"
 
 
-def test_speaking_twice_in_one_direction_replaces_the_earlier_message() -> None:
+def test_speaking_twice_in_one_direction_delivers_both_in_order() -> None:
+    """A live run had a model send a proposal and then a rewording of it to the same
+    neighbour. The first was dropped and the model was told both had been sent, so
+    neither side of the ring could see the loss. Everything said is delivered."""
     engine = new_game(5)
     wake(engine, 0)
 
@@ -136,8 +139,33 @@ def test_speaking_twice_in_one_direction_replaces_the_earlier_message() -> None:
     engine.execute_command(FinishTurnCommand(agent_id=0))
 
     heard = [m.content for m in engine.current_state.agent_memories[1].messages]
-    assert len(heard) == 1
-    assert "second" in heard[0] and "first" not in heard[0]
+    assert len(heard) == 2
+    assert "first" in heard[0], "spoken order is kept; a correction follows what it corrects"
+    assert "second" in heard[1]
+
+
+def test_words_to_different_seats_stay_grouped_by_seat() -> None:
+    """Dispatch order is fixed by direction, never by the order the tools happened
+    to fire, so what a listener reads does not depend on the model's call order."""
+    engine = new_game(5)
+    wake(engine, 0)
+
+    for content, direction in (
+        ("right one", MessageDirection.RIGHT),
+        ("left one", MessageDirection.LEFT),
+        ("right two", MessageDirection.RIGHT),
+    ):
+        engine.execute_command(
+            SpeakCommand(agent_id=0, direction=direction, content=content)
+        )
+    engine.execute_command(FinishTurnCommand(agent_id=0))
+
+    to_the_left = [m.content for m in engine.current_state.agent_memories[1].messages]
+    to_the_right = [m.content for m in engine.current_state.agent_memories[4].messages]
+
+    assert len(to_the_left) == 1 and "left one" in to_the_left[0]
+    assert len(to_the_right) == 2
+    assert "right one" in to_the_right[0] and "right two" in to_the_right[1]
 
 
 def test_a_listener_is_told_which_side_the_voice_came_from() -> None:

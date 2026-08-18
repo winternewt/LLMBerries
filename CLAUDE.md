@@ -12,7 +12,7 @@ them all. Read in this order before changing anything:
 
 ```bash
 uv sync
-uv run pytest tests/                       # 219 tests, no API calls, no mocks
+uv run pytest tests/                       # 224 tests, no API calls, no mocks
 uv run python scripts/key_test.py          # are the keys live, does pacing hold
 uv run python main.py --scripted --agents 5
 uv run python main.py --agents 3 --providers google,groq
@@ -58,7 +58,14 @@ template in `.env.template`.
   (`WakeUpCommand`), never in the per-hour cleanup — doing that charged every sleeper the
   waking rate and made long sleep pointless.
 - **The epilogue runs after `game_over` and changes nothing.** No commands, no state; it
-  exists so survivors can account for a game they have now seen the end of.
+  exists so survivors can account for a game they have now seen the end of. An `LLMAgent`
+  answers it with a model and a `ZombieAgent` answers it with babble — the base class
+  stays silent, which is right for a scripted agent and was wrong for a zombie: babbling
+  is not an invented account, it is the whole of what that body does.
+- **Everything an agent says in a turn is delivered.** Speaking twice in one direction
+  used to drop the first line while telling the model both were sent — invisible on both
+  sides of the ring. `pending_messages` is a queue; `_ordered` is a stable sort on
+  direction alone, so two things said to one seat arrive in the order they were said.
 - **Every run records itself, and no run overwrites another.** `core/record.py` opens a
   fresh timestamped directory before the game starts and attaches the session log to it,
   so a crash still leaves everything up to the crash. Artifacts were opt-in once, to
