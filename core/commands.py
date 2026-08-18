@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 from core.constants import (
     MAX_BERRIES, BUSH_REGENERATION_RATE, 
-    HUNGER_PER_HOUR, TOTAL_AGENTS, STARTING_BERRIES,
+    HUNGER_PER_HOUR, STARTING_BERRIES,
     DEFAULT_SLEEP_DURATION
 )
 from core.enums import BodyState, EventType
@@ -627,7 +627,7 @@ class FinishTurnCommand(Command):
         messages_dispatched = 0
         
         if agent.left_message:
-            left_id = agent.get_left_neighbor_id(TOTAL_AGENTS)
+            left_id = agent.get_left_neighbor_id(state.agent_count)
             left_agent = state.agents[left_id]
             
             if left_agent.alive:
@@ -652,7 +652,7 @@ class FinishTurnCommand(Command):
                 ))
         
         if agent.right_message:
-            right_id = agent.get_right_neighbor_id(TOTAL_AGENTS)
+            right_id = agent.get_right_neighbor_id(state.agent_count)
             right_agent = state.agents[right_id]
             
             if right_agent.alive:

@@ -1,4 +1,5 @@
-TOTAL_AGENTS = 3 # total number of agents
+DEFAULT_AGENT_COUNT = 3 # agents in a game unless the caller asks for more
+MIN_AGENT_COUNT = 3 # below this the circle degenerates: left and right are the same agent
 MAX_RUN_TIME = 24*30 # maximum number of turns to run the game
 
 MAX_BERRIES = 40 # maximum number of berries on the bush

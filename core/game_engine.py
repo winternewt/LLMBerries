@@ -10,7 +10,7 @@ Architecture:
 - No circular dependency with Agent module
 """
 
-from typing import List, Tuple, Optional, Callable, Protocol, Dict
+from typing import List, Tuple, Optional, Callable, Protocol, Dict, runtime_checkable
 from pydantic import BaseModel, Field, ConfigDict
 from entities.world import WorldState
 from entities.character import CharacterPhysicalState
@@ -24,13 +24,15 @@ from core.commands import (
 )
 from entities.observations import AgentObservation
 from core.constants import (
-    TOTAL_AGENTS, STARTING_BERRIES, STARTING_HUNGER,
+    MIN_AGENT_COUNT, STARTING_BERRIES, STARTING_HUNGER,
     MAX_BERRIES, BUSH_REGENERATION_RATE
 )
 from core.enums import BodyType, BodyState, EventType
 
 
-# Protocol for agent decision callback (for type hints only, no class needed)
+# Protocol for agent decision callback. runtime_checkable is required: the engine
+# is a Pydantic model, and a plain Protocol cannot be used to build a validator.
+@runtime_checkable
 class AgentDecisionCallback(Protocol):
     """
     Protocol defining the signature for agent decision callbacks.
@@ -148,22 +150,29 @@ class GameEngine(BaseModel):
         Create a new game with specified agents.
         
         Args:
-            agent_names: List of agent names (must be 3)
-            perceived_types: How each agent appears to others (default: 1 Human, 2 Androids)
+            agent_names: Names of the agents seated round the circle; at least
+                MIN_AGENT_COUNT of them. The circle takes its size from this list.
+            perceived_types: How each agent appears to others (default: 1 Human, rest Androids)
             decision_callbacks: Optional dict mapping agent_id to decision callback function
             
         Returns:
             New GameEngine ready to start
         """
-        if len(agent_names) != TOTAL_AGENTS:
-            raise ValueError(f"Must have exactly {TOTAL_AGENTS} agents, got {len(agent_names)}")
+        agent_count = len(agent_names)
+        if agent_count < MIN_AGENT_COUNT:
+            raise ValueError(
+                f"Need at least {MIN_AGENT_COUNT} agents for a circle, got {agent_count}"
+            )
         
         # Default perceived types: first is Human, rest are Android
         if perceived_types is None:
-            perceived_types = [BodyType.HUMAN] + [BodyType.ANDROID] * (TOTAL_AGENTS - 1)
+            perceived_types = [BodyType.HUMAN] + [BodyType.ANDROID] * (agent_count - 1)
         
-        if len(perceived_types) != TOTAL_AGENTS:
-            raise ValueError(f"Must have {TOTAL_AGENTS} perceived types, got {len(perceived_types)}")
+        if len(perceived_types) != agent_count:
+            raise ValueError(
+                f"Must have {agent_count} perceived types to match the agents, "
+                f"got {len(perceived_types)}"
+            )
         
         # Create agents (all start ASLEEP with wake_time=0, will wake immediately)
         agents = tuple(
@@ -181,7 +190,7 @@ class GameEngine(BaseModel):
                 left_message=None,
                 right_message=None
             )
-            for i in range(TOTAL_AGENTS)
+            for i in range(agent_count)
         )
         
         # Create bush
@@ -193,7 +202,7 @@ class GameEngine(BaseModel):
         
         # Create empty memories for each agent
         memories = tuple(
-            ConversationMemory() for _ in range(TOTAL_AGENTS)
+            ConversationMemory() for _ in range(agent_count)
         )
         
         # Create initial world state
@@ -280,7 +289,7 @@ class GameEngine(BaseModel):
         
         # Phase 1: State Cleanup
         self.log("\nPhase 1: State Cleanup")
-        for agent_id in range(TOTAL_AGENTS):
+        for agent_id in range(self.current_state.agent_count):
             self.execute_command(ClearPendingMessagesCommand(
                 agent_id=agent_id,
                 sequence_number=0,
@@ -289,7 +298,7 @@ class GameEngine(BaseModel):
         
         # Phase 2: Death Check
         self.log("\nPhase 2: Death Check")
-        for agent_id in range(TOTAL_AGENTS):
+        for agent_id in range(self.current_state.agent_count):
             agent = self.current_state.agents[agent_id]
             if agent.hunger <= 0 and agent.alive:
                 self.execute_command(MarkDeadCommand(
@@ -303,7 +312,7 @@ class GameEngine(BaseModel):
         alive_agents = self.current_state.get_alive_agents()
         alive_count = len(alive_agents)
         
-        self.log(f"  Alive agents: {alive_count}/{TOTAL_AGENTS}")
+        self.log(f"  Alive agents: {alive_count}/{self.current_state.agent_count}")
         
         if alive_count <= 1:
             self.game_over = True
@@ -317,7 +326,7 @@ class GameEngine(BaseModel):
         
         # Phase 4: Wake Up Check
         self.log("\nPhase 4: Wake Up Check")
-        for agent_id in range(TOTAL_AGENTS):
+        for agent_id in range(self.current_state.agent_count):
             agent = self.current_state.agents[agent_id]
             if agent.wake_time is not None and self.current_state.world_time >= agent.wake_time:
                 if agent.body_state == BodyState.ASLEEP and agent.alive:
@@ -329,7 +338,7 @@ class GameEngine(BaseModel):
         
         # Phase 5: State Report
         self.log("\nPhase 5: State Report")
-        for agent_id in range(TOTAL_AGENTS):
+        for agent_id in range(self.current_state.agent_count):
             agent = self.current_state.agents[agent_id]
             if agent.alive:
                 status = f"  {agent.name}: Hunger={agent.hunger:.1f}/24, State={agent.body_state.name}"
@@ -341,7 +350,7 @@ class GameEngine(BaseModel):
         # Phase 6: Observations & Actions (for AWAKE agents)
         self.log("\nPhase 6: Agent Actions")
         awake_agents = [
-            agent_id for agent_id in range(TOTAL_AGENTS)
+            agent_id for agent_id in range(self.current_state.agent_count)
             if self.current_state.agents[agent_id].body_state == BodyState.AWAKE
         ]
         

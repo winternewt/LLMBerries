@@ -4,7 +4,7 @@ from entities.character import CharacterPhysicalState
 from entities.bush import BushState
 from entities.memory import ConversationMemory
 
-from core.constants import TOTAL_AGENTS
+from core.constants import MIN_AGENT_COUNT
 
 def check_immutable(obj: Any, path: str = "root") -> None:
     """
@@ -37,7 +37,7 @@ class WorldState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     world_time: int = Field(default=0, ge=0, description="Current world time in hours")
-    active_agent_id: int = Field(default=0, ge=0, le=TOTAL_AGENTS-1, description="ID of active agent")
+    active_agent_id: int = Field(default=0, ge=0, description="ID of active agent")
 
     agents: Tuple[CharacterPhysicalState, ...] = Field(..., description="All agent states")
     bush: BushState = Field(..., description="Bush state")
@@ -48,6 +48,34 @@ class WorldState(BaseModel):
         """Ensure no mutable collections in state tree."""
         check_immutable(self)
         return self
+
+    @model_validator(mode='after')
+    def validate_agent_count(self) -> "WorldState":
+        """The circle sizes itself from `agents`; everything else is checked against it.
+
+        Bounds are derived here rather than restated on each field, so a state with
+        four agents cannot be built with validators still assuming three.
+        """
+        count = len(self.agents)
+        if count < MIN_AGENT_COUNT:
+            raise ValueError(
+                f"a circle needs at least {MIN_AGENT_COUNT} agents, got {count}: with fewer, "
+                "an agent's left and right neighbour are the same agent"
+            )
+        if len(self.agent_memories) != count:
+            raise ValueError(
+                f"{count} agents but {len(self.agent_memories)} memories — they must match"
+            )
+        if self.active_agent_id >= count:
+            raise ValueError(
+                f"active_agent_id {self.active_agent_id} is outside a circle of {count}"
+            )
+        return self
+
+    @property
+    def agent_count(self) -> int:
+        """Number of agents in the circle. The single source of truth for its size."""
+        return len(self.agents)
 
     def with_agent(self, agent_id: int, **fields: Any) -> "WorldState":
         """

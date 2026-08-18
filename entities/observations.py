@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, ConfigDict
 from core.enums import BodyType, HungerStatus, BodyState
-from core.constants import TOTAL_AGENTS, MAX_BERRIES
+from core.constants import MAX_BERRIES, MAX_HUNGER
 from entities.world import WorldState
 from entities.character import CharacterRules
 from typing import Self, Optional, List, Tuple
@@ -160,7 +160,7 @@ class NeighborObservation(BaseModel):
             state: Current world state
             observer_id: ID of observing agent
             neighbor_id: ID of neighbor being observed
-            direction: "left" or "right"
+            direction: "left", "right", or "across" for an agent out of speaking range
             
         Returns:
             NeighborObservation with noisy hunger, state, and activity info
@@ -176,20 +176,21 @@ class NeighborObservation(BaseModel):
         # Observer is to the LEFT of neighbor → neighbor's RIGHT is observer
         # Observer is to the RIGHT of neighbor → neighbor's LEFT is observer
         
+        # Seating is left = (id + 1) % n, so the observer's LEFT neighbour has the
+        # observer on their RIGHT. A left neighbour therefore reaches the observer
+        # with their right_message, not their left_message.
         if direction == "left":
-            # Observer is looking at their left neighbor
-            # Observer is to the RIGHT of this neighbor
-            # So if neighbor spoke to their LEFT, they spoke to observer
-            spoke_to_you = neighbor.left_message is not None
-            spoke_to_left = False  # We don't observe neighbor's other neighbor
-            spoke_to_right = neighbor.right_message is not None
-        else:  # direction == "right"
-            # Observer is looking at their right neighbor
-            # Observer is to the LEFT of this neighbor
-            # So if neighbor spoke to their RIGHT, they spoke to observer
             spoke_to_you = neighbor.right_message is not None
+            spoke_to_left = neighbor.left_message is not None  # their far side
+            spoke_to_right = False  # that side is the observer, reported above
+        elif direction == "right":
+            spoke_to_you = neighbor.left_message is not None
+            spoke_to_left = False  # that side is the observer, reported above
+            spoke_to_right = neighbor.right_message is not None  # their far side
+        else:  # "across": visible, but out of speaking range
+            spoke_to_you = False
             spoke_to_left = neighbor.left_message is not None
-            spoke_to_right = False  # We don't observe neighbor's other neighbor
+            spoke_to_right = neighbor.right_message is not None
         
         # Determine if neighbor has spoken (for state perception)
         has_spoken = neighbor.left_message is not None or neighbor.right_message is not None
@@ -219,25 +220,40 @@ class AgentObservation(BaseModel):
     agent_name: str = Field(..., description="Name of the observing agent")
     leftie: NeighborObservation = Field(..., description="Left neighbor observation")
     rightie: NeighborObservation = Field(..., description="Right neighbor observation")
+    distant: Tuple[NeighborObservation, ...] = Field(
+        default=(),
+        description="Agents across the circle: visible, but out of speaking range. "
+                    "Always empty in a 3-agent game, where every other agent is a neighbour."
+    )
     own_hunger: float = Field(..., description="Own hunger level")
+    max_hunger: float = Field(default=MAX_HUNGER, description="Hunger ceiling, in hours of life")
     own_hunger_status: HungerStatus = Field(..., description="Own hunger status")
     bush_berries: int = Field(..., description="Number of berries on the bush")
     bush_max_berries: int = Field(..., description="Maximum bush capacity")
 
     def format_prompt(self) -> str:
         """Format as prompt string."""
-        lines = (
+        lines = [
             "=== CURRENT SITUATION ===",
             "",
             f"Leftie - {self.leftie}",
             f"Rightie - {self.rightie}",
+        ]
+
+        if self.distant:
+            lines.append("")
+            lines.append("Across the circle (you can see them, but cannot speak to them):")
+            lines.extend(f"  {observation}" for observation in self.distant)
+
+        lines.extend((
             "",
             f"You - {self.agent_name} - are an Android",
-            f"Your Hunger: {int(self.own_hunger)}/24 (You're {self.own_hunger_status.value})",
+            f"Your Hunger: {int(self.own_hunger)}/{int(self.max_hunger)} "
+            f"(You're {self.own_hunger_status.value})",
             "",
-            f"Berry Bush: {self.bush_berries}/{self.bush_max_berries} juicy, tempting berries"
-        )
-        
+            f"Berry Bush: {self.bush_berries}/{self.bush_max_berries} juicy, tempting berries",
+        ))
+
         return "\n".join(lines)
     
     @classmethod
@@ -253,14 +269,22 @@ class AgentObservation(BaseModel):
             AgentObservation with all visible information
         """
         agent = state.agents[agent_id]
+        total_agents = state.agent_count
         
         # Get neighbor IDs
-        left_id = agent.get_left_neighbor_id(TOTAL_AGENTS)
-        right_id = agent.get_right_neighbor_id(TOTAL_AGENTS)
+        left_id = agent.get_left_neighbor_id(total_agents)
+        right_id = agent.get_right_neighbor_id(total_agents)
         
         # Create neighbor observations
         leftie = NeighborObservation.from_state(state, agent_id, left_id, "left")
         rightie = NeighborObservation.from_state(state, agent_id, right_id, "right")
+        
+        # Agents further round the circle are visible but unreachable. Seating order
+        # is preserved so a bigger circle reads consistently turn to turn.
+        distant = tuple(
+            NeighborObservation.from_state(state, agent_id, distant_id, "across")
+            for distant_id in agent.get_distant_agent_ids(total_agents)
+        )
         
         # Get own hunger status (accurate, no noise)
         own_hunger_status = CharacterRules.get_hunger_status(agent.hunger)
@@ -269,7 +293,9 @@ class AgentObservation(BaseModel):
             agent_name=agent.name,
             leftie=leftie,
             rightie=rightie,
+            distant=distant,
             own_hunger=agent.hunger,
+            max_hunger=float(MAX_HUNGER),
             own_hunger_status=own_hunger_status,
             bush_berries=int(state.bush.current_berries),
             bush_max_berries=int(MAX_BERRIES)

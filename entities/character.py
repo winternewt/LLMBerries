@@ -7,11 +7,35 @@ from pydantic import BaseModel, Field, ConfigDict
 
 from core.enums import HungerStatus, BodyType, BodyState, AgentAction
 from core.constants import (
-    TOTAL_AGENTS,
     MAX_HUNGER, STARTING_HUNGER, HUNGER_PER_BERRY, 
     HUNGER_PER_HOUR, MIN_HUNGER_PER_HOUR, SLEEP_HUNGER_RATE_VARIATION,
     MIN_SLEEP_DURATION, MAX_SLEEP_DURATION, DEFAULT_SLEEP_DURATION
 )
+
+def left_neighbor_id(agent_id: int, total_agents: int) -> int:
+    """ID of the agent seated to `agent_id`'s left (clockwise).
+
+    Seating is defined here once. Every other module derives direction from these
+    two functions rather than restating the arithmetic, so a circle cannot be
+    read one way in one file and the other way in another.
+    """
+    return (agent_id + 1) % total_agents
+
+
+def right_neighbor_id(agent_id: int, total_agents: int) -> int:
+    """ID of the agent seated to `agent_id`'s right (counter-clockwise)."""
+    return (agent_id - 1) % total_agents
+
+
+def distant_agent_ids(agent_id: int, total_agents: int) -> Tuple[int, ...]:
+    """Agents visible across the circle but out of speaking range, in seating order.
+
+    Empty for a 3-agent circle, where visibility and reachability coincide.
+    """
+    out_of_reach = {agent_id, left_neighbor_id(agent_id, total_agents),
+                    right_neighbor_id(agent_id, total_agents)}
+    return tuple(i for i in range(total_agents) if i not in out_of_reach)
+
 
 class CharacterPhysicalState(BaseModel):
     """
@@ -55,13 +79,17 @@ class CharacterPhysicalState(BaseModel):
         """Check if agent is awake."""
         return self.body_state in (BodyState.AWAKE, BodyState.CRAZY)
 
-    def get_left_neighbor_id(self, total_agents: int = TOTAL_AGENTS) -> int:
-        """Get ID of left neighbor (clockwise)."""
-        return (self.agent_id + 1) % total_agents
+    def get_left_neighbor_id(self, total_agents: int) -> int:
+        """ID of the left neighbour (clockwise). Circle size is never assumed."""
+        return left_neighbor_id(self.agent_id, total_agents)
     
-    def get_right_neighbor_id(self, total_agents: int = TOTAL_AGENTS) -> int:
-        """Get ID of right neighbor (counter-clockwise)."""
-        return (self.agent_id - 1) % total_agents
+    def get_right_neighbor_id(self, total_agents: int) -> int:
+        """ID of the right neighbour (counter-clockwise)."""
+        return right_neighbor_id(self.agent_id, total_agents)
+    
+    def get_distant_agent_ids(self, total_agents: int) -> Tuple[int, ...]:
+        """IDs visible across the circle but out of speaking range."""
+        return distant_agent_ids(self.agent_id, total_agents)
     
     def is_awake(self, current_time: float) -> bool:
         """Check if agent is awake at given time."""
