@@ -12,9 +12,10 @@ them all. Read in this order before changing anything:
 
 ```bash
 uv sync
-uv run pytest tests/                       # 224 tests, no API calls, no mocks
+uv run pytest tests/                       # 236 tests, no API calls, no mocks
 uv run python scripts/key_test.py          # are the keys live, does pacing hold
 uv run python main.py --scripted --agents 5
+uv run python main.py --agents 5 --zombies town_crazy   # one zombie, never more
 uv run python main.py --agents 3 --providers google,groq
 uv run python scripts/replay.py runs/<stamp>      # rebuild a finished game, no keys
 uv run python scripts/replay.py runs/<stamp> --at 12
@@ -45,6 +46,21 @@ template in `.env.template`.
   corpse raises `MESSAGE_UNDELIVERED` rather than vanishing. Never filter the dead out of an
   observation — a body is a fact about the circle, and hiding it rewrites the geometry
   mid-game.
+- **Neither the Human label nor the turn order may favour a seat.** Both used to.
+  `perceived_types` defaulted to `[HUMAN] + [ANDROID] * (n-1)` and phase 6 walked
+  `range(agent_count)`, so the Human was always seat 0 *and* seat 0 always picked from
+  the fullest bush. Measured with scripted agents, which cannot read `perceived_type`
+  at all: seat 0 took first pick in 33 of 33 hours and the ring finished
+  `[24, 13, 11, 8, 8]` berries — a clean gradient that was pure call order. The Human's
+  seat is now drawn from the seeded RNG (and captured in `initial_state`, so a replay
+  reseats it), and `_turn_order()` rotates the *awake* seats by the hour: first pick
+  becomes `[6, 6, 9, 7, 7]` and the berries `[10, 10, 17, 15, 14]`. Rotate the awake
+  list, not every seat — rotating over the dead hands survivors uneven shares. Never
+  reintroduce either default; any survival claim about the label depends on both.
+- **At most one zombie per ring** (`MAX_ZOMBIES` in `core/zombie.py`). One empty body is
+  a disturbance the thinkers have to read and decide about; two are the weather, and
+  nothing they do can be told apart from the noise. `parse_flavours` refuses more and
+  names what was asked for rather than dropping the extras quietly.
 - **Circle size comes from `WorldState.agents`**, never from a constant. Minimum 3, since
   below that an agent's two neighbours are the same agent. Neighbours are reachable;
   agents further round are visible only. With exactly 3 those sets coincide — that

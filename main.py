@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from core.agent import Agent, LLMAgent, ScriptedAgent
 from core.chronicler import Chronicler, save_chronicle
 from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
+from core.enums import BodyType
 from core.game_engine import GameEngine
 from core.narrator import Narrator, render_transcript
 from core.replay import REPLAY_NAME, load_replay, rebuild, save_replay
@@ -192,7 +193,7 @@ def play(
     scripted: bool = typer.Option(False, "--scripted", help="Rule-based agents, no API calls"),
     zombies: Optional[str] = typer.Option(
         None,
-        help="Comma-separated flavours to seat as zombies, last seats first: "
+        help="One flavour to seat as a zombie, in the last seat: "
              "town_crazy, pirate, gorlum, ghurl, deaf_hatter",
     ),
     providers: Optional[str] = typer.Option(
@@ -244,7 +245,10 @@ def play(
         typer.echo(f"Recording this run in {run_dir}")
 
     provider_specs = resolve_providers(providers)
-    flavours = parse_flavours(zombies) if zombies else []
+    try:
+        flavours = parse_flavours(zombies) if zombies else []
+    except ValueError as refusal:
+        raise typer.BadParameter(str(refusal), param_hint="--zombies") from refusal
     engine = GameEngine.create_new_game(agent_names=agent_names(agents))
     chronicler = Chronicler(engine)
     seats = build_agents(
@@ -272,6 +276,12 @@ def play(
         for seat in seats
     )
     typer.echo(f"Seated {agents} — {described}")
+    # Which body reads as human is drawn per run now, and it is the variable under
+    # study, so the run says where it landed rather than leaving it to the chronicle.
+    human = next(
+        seat for seat in engine.current_state.agents if seat.perceived_type is BodyType.HUMAN
+    )
+    typer.echo(f"  Reads as human: {human.name} (seat {human.agent_id}); the rest read as android")
     thinking = [seat for seat in seats if isinstance(seat, LLMAgent)]
     if thinking:
         distinct = {seat.provider.name for seat in thinking}

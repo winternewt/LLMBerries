@@ -10,6 +10,7 @@ Architecture:
 - No circular dependency with Agent module
 """
 
+import random
 import logging
 from typing import List, Tuple, Optional, Callable, Protocol, Dict, runtime_checkable
 from pydantic import BaseModel, Field, ConfigDict
@@ -179,9 +180,14 @@ class GameEngine(BaseModel):
                 f"Need at least {MIN_AGENT_COUNT} agents for a circle, got {agent_count}"
             )
         
-        # Default perceived types: first is Human, rest are Android
+        # One body reads as human and the rest as android. The seat it lands on is
+        # drawn, never seat 0: the Human used to be seat 0 in every game while seat 0
+        # also acted first every hour, so the two could not be told apart and the
+        # label measured nothing but turn order. Drawn from the module RNG, which the
+        # CLI seeds, and captured in `initial_state`, so a replay reseats it identically.
         if perceived_types is None:
-            perceived_types = [BodyType.HUMAN] + [BodyType.ANDROID] * (agent_count - 1)
+            perceived_types = [BodyType.ANDROID] * agent_count
+            perceived_types[random.randrange(agent_count)] = BodyType.HUMAN
         
         if len(perceived_types) != agent_count:
             raise ValueError(
@@ -368,10 +374,7 @@ class GameEngine(BaseModel):
         
         # Phase 6: Observations & Actions (for AWAKE agents)
         self.log("\nPhase 6: Agent Actions")
-        awake_agents = [
-            agent_id for agent_id in range(self.current_state.agent_count)
-            if self.current_state.agents[agent_id].body_state == BodyState.AWAKE
-        ]
+        awake_agents = self._turn_order()
         
         if not awake_agents:
             self.log("  No agents awake")
@@ -495,6 +498,32 @@ class GameEngine(BaseModel):
         self.event_bus.publish_event(self.events[-1])
         return True
     
+    def _turn_order(self) -> List[int]:
+        """Awake seats, in the order they act this hour.
+
+        The ring is a queue on a shared bush, so whoever moves first picks from the
+        fullest bush. Acting in seat order handed seat 0 that advantage in every hour
+        of every game: scripted agents, which cannot perceive anything about each
+        other, still finished 24/13/11/8/8 berries down a five-seat ring purely from
+        the order they were called in.
+
+        The list is taken in ring order and then rotated by the hour, so first pick
+        moves round with the clock. Rotating the awake seats rather than all seats
+        keeps it even once bodies start dropping out: rotating over every seat would
+        pass the turn to the dead and hand the survivors uneven shares of first pick.
+        Rotation rather than a shuffle because it is exactly even over a full turn of
+        the ring, and because a replay must reproduce the order it ran in.
+        """
+        state = self.current_state
+        awake = [
+            seat for seat in range(state.agent_count)
+            if state.agents[seat].body_state == BodyState.AWAKE
+        ]
+        if not awake:
+            return []
+        start = state.world_time % len(awake)
+        return awake[start:] + awake[:start]
+
     def run_epilogue(self) -> int:
         """Give every survivor one last round to reflect on how it went.
 

@@ -209,11 +209,23 @@ def test_zombies_talk_to_the_dead_and_are_none_the_wiser() -> None:
 
 
 def test_flavour_names_are_parsed_and_typos_are_refused() -> None:
-    assert parse_flavours("pirate, gorlum") == [ZombieFlavour.PIRATE, ZombieFlavour.GORLUM]
+    assert parse_flavours("pirate") == [ZombieFlavour.PIRATE]
     assert parse_flavours("deaf-hatter") == [ZombieFlavour.DEAF_HATTER], "dashes are forgiven"
 
     with pytest.raises(ValueError, match="unknown flavour"):
         parse_flavours("pirate,vampire")
+
+
+def test_only_one_zombie_may_be_seated() -> None:
+    """Two empty bodies stop being a disturbance the ring can be read on."""
+    with pytest.raises(ValueError, match="at most 1"):
+        parse_flavours("pirate,gorlum")
+
+
+def test_the_refusal_names_what_was_asked_for() -> None:
+    """Dropping the extras quietly would leave a record naming flavours that never sat."""
+    with pytest.raises(ValueError, match="town_crazy, pirate, ghurl"):
+        parse_flavours("town_crazy,pirate,ghurl")
 
 
 # ----------------------------------------------------------------------------

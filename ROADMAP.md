@@ -6,25 +6,6 @@
 
 ## 🚀 Immediate
 
-- [ ] **The Human label is perfectly confounded with turn order**
-  - `create_new_game` defaults `perceived_types` to `[HUMAN] + [ANDROID] * (n-1)`, so the
-    Human is always seat 0, and phase 6 walks `range(agent_count)`, so seat 0 also acts
-    first every hour and takes first pick of the bush.
-  - Measured with scripted agents, which cannot read `perceived_type` at all: seat 0 wins
-    every game, and berries fall off monotonically by seat — 3 seats `[32, 21, 19]`,
-    4 seats `[27, 16, 12, 12]`, 5 seats `[24, 13, 11, 8, 8]`. That gradient is the whole
-    of the "Human survives more" effect; nothing about the label is being measured.
-  - Fix needs both halves: put the Human on a seat drawn from the run seed, and stop
-    acting in seat order (rotate the starting seat each hour, or draw the order). Doing
-    only one leaves the other confound in place.
-
-- [ ] **The Human is never a zombie in a mixed run**
-  - `build_agents` seats zombies last and the Human is seat 0, so a body that reads as
-    human is always a thinking agent unless every seat is a zombie. An insane human and
-    a sane android are exactly the contrast the label exists for; only the all-zombie
-    run has ever produced one.
-
-
 - [ ] **Feed conversation memory to the model properly**
   - Currently only messages since the agent's last turn are passed as the user
     message; earlier history lives in `WorldState` but is not replayed.

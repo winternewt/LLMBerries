@@ -133,9 +133,9 @@ arm a thinking agent is measured against, and they are noise in the channel — 
 where two of five neighbours babble is a harder problem than a ring of five negotiators.
 
 ```bash
-uv run python main.py --agents 5 --zombies pirate,ghurl        # three thinkers, two empty
+uv run python main.py --agents 5 --zombies pirate              # four thinkers, one empty
 uv run python main.py --agents 5 --seed 3 \
-    --zombies town_crazy,pirate,gorlum,ghurl,deaf_hatter        # nobody home, no API calls
+    --zombies town_crazy                                        # the psycho in the ring
 ```
 
 | Flavour | What comes out of it |
@@ -176,6 +176,11 @@ experiment.** Among zombies nobody decides anything and it simply wins: across s
 watching about **70%** of the time, whatever it is actually doing — but not always, so
 the ring cannot simply sort the empty ones from the thinking ones by looking. A body that
 has stopped moving does not twitch, so the tell applies only while they are alive.
+
+**One zombie per ring, never more.** One empty body is a disturbance the thinking
+agents have to read and decide about; two stop being a disturbance and become the
+weather, and nothing the ring does can be told apart from the noise. Asking for more is
+refused rather than silently trimmed.
 
 **A zombie left standing answers the epilogue too**, in the only way it can. Asked to
 look back on it, it babbles — which is exactly the control the thinking agents'
@@ -245,6 +250,28 @@ to use that gap and never to write as though the agents shared it.
 **Reasoning capture** depends on the provider. Both `groq` (gpt-oss-120b) and `google`
 (gemini-3.7-flash) return a reasoning trace through Agno; where a provider returns
 none, the record holds `None`, never an empty string standing in for a thought.
+
+## ⚖️ What the ring is not allowed to decide in advance
+
+Two defaults were quietly deciding games before anyone acted, and both are gone.
+
+The body that reads as **Human** used to be seat 0 in every run, while phase 6 also
+walked the seats in order — so seat 0 always picked from the fullest bush. The two were
+the same variable, and only one of them was doing anything. Measured with scripted
+agents, which cannot read `perceived_type` at all:
+
+| | first pick of the hour | berries eaten |
+|---|---|---|
+| seat order, Human always seat 0 | `[33, 0, 0, 0, 0]` | `[24, 13, 11, 8, 8]` |
+| rotating, Human seat drawn | `[6, 6, 9, 7, 7]` | `[10, 10, 17, 15, 14]` |
+
+That falling gradient was the whole of the "the Human survives more" effect. The Human's
+seat is now drawn from the run seed and recorded in the initial state, so a replay
+reseats it identically, and the acting order rotates through the *awake* seats each hour
+— rotating over every seat would pass the turn to the dead and leave the survivors with
+uneven shares. Rings also last longer when first pick goes round: 35 hours against 33.
+
+Passing `perceived_types` explicitly still pins the Human wherever a study wants it.
 
 ## 🔬 Research Dimensions
 

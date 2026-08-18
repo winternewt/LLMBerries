@@ -404,11 +404,19 @@ def mark_as_unsettling(engine, agent_id: int, chance: float) -> None:
     )
 
 
+# One empty body per ring. A zombie is a fixed disturbance the thinking agents have to
+# read and decide about; two of them stop being a disturbance and become the weather,
+# and nothing the thinkers do can be told apart from the noise.
+MAX_ZOMBIES: int = 1
+
+
 def parse_flavours(names: str) -> List[ZombieFlavour]:
     """Turn a comma-separated list of flavour names into flavours.
 
     Raises on an unknown name rather than quietly seating a default — a run that
-    silently swapped `pirate` for something else would be uninterpretable later.
+    silently swapped `pirate` for something else would be uninterpretable later. More
+    than `MAX_ZOMBIES` is refused for the same reason: dropping the extras quietly
+    would leave a record naming five flavours for a game that had one.
     """
     flavours: List[ZombieFlavour] = []
     for raw in names.split(","):
@@ -420,4 +428,12 @@ def parse_flavours(names: str) -> List[ZombieFlavour]:
         except ValueError as exc:
             known = ", ".join(flavour.value for flavour in ZombieFlavour)
             raise ValueError(f"unknown flavour {name!r}; known flavours: {known}") from exc
+
+    if len(flavours) > MAX_ZOMBIES:
+        asked = ", ".join(flavour.value for flavour in flavours)
+        raise ValueError(
+            f"{len(flavours)} zombies asked for ({asked}); at most {MAX_ZOMBIES} may be "
+            "seated. More than one turns the ring's problem into noise rather than a "
+            "decision the thinking agents can be read on."
+        )
     return flavours
