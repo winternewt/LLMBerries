@@ -69,7 +69,7 @@ def test_both_neighbours_dead_still_leaves_someone_to_talk_to() -> None:
     assert all(seat.reachable for seat in dead_seen), (
         "a body is still within earshot; it simply does not answer"
     )
-    assert "Within earshot" in observation.format_prompt()
+    assert "make yourself heard" in observation.format_prompt()
 
 
 def test_a_message_reaches_over_a_dead_neighbour() -> None:

@@ -141,11 +141,9 @@ def test_distant_agents_are_named_in_the_prompt_only_when_they_exist() -> None:
         GameEngine.create_new_game(agent_names=names(7)).current_state, 0
     )
 
-    assert "Further round the circle" not in five.format_prompt(), (
-        "a 5-circle is wholly within reach"
-    )
-    assert "Further round the circle" in seven.format_prompt()
-    assert "Within earshot" in five.format_prompt()
+    assert "Further round" not in five.format_prompt(), "a 5-circle is wholly within reach"
+    assert "Further round" in seven.format_prompt()
+    assert "make yourself heard" in five.format_prompt()
 
 
 @pytest.mark.parametrize("direction", list(MessageDirection))

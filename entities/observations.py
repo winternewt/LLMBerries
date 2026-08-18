@@ -122,6 +122,32 @@ def get_perceived_body_state(
     return perceived, description
 
 
+HUNGER_WORDS: dict = {
+    HungerStatus.DEAD: "wasted",
+    HungerStatus.DYING: "close to the end",
+    HungerStatus.STARVING: "starved",
+    HungerStatus.HUNGRY: "hungry",
+    HungerStatus.FINE: "steady",
+    HungerStatus.FED: "fed",
+    HungerStatus.STUFFED: "well fed",
+    HungerStatus.UNEXPECTED: "hard to read",
+}
+
+
+def hunger_word(status: HungerStatus) -> str:
+    """How a body at this hunger reads to someone watching it."""
+    return HUNGER_WORDS.get(status, "hard to read")
+
+
+SEAT_WHERE: dict = {
+    "left": "on your left",
+    "left_far": "two places to your left",
+    "right": "on your right",
+    "right_far": "two places to your right",
+    "across": "further round the ring",
+}
+
+
 class SeatObservation(BaseModel):
     """What an agent can make out about one other seat in the circle.
 
@@ -137,6 +163,9 @@ class SeatObservation(BaseModel):
     relation: str = Field(
         description="How they sit relative to the observer: a MessageDirection value, or 'across'"
     )
+    where: str = Field(
+        default="", description="Where they sit, as the observer would put it"
+    )
     reachable: bool = Field(description="Whether the observer can speak to this seat")
     body_type: BodyType = Field(description="Perceived body type (Human or Android)")
     hunger_status: HungerStatus = Field(description="Perceived hunger status (with noise)")
@@ -148,19 +177,18 @@ class SeatObservation(BaseModel):
     )
 
     def get_activity_description(self) -> str:
-        """Human-readable activity."""
+        """What they were seen doing, as far as it can be told from here."""
         activities = []
         if self.spoke_to_you:
-            activities.append("spoke to you")
+            activities.append("said something to you")
         if self.spoke_to_others:
-            activities.append("spoke to someone else")
-        return ", ".join(activities) if activities else "silent"
+            activities.append("was talking to someone else")
+        return ", ".join(activities) if activities else "said nothing"
 
     def __str__(self) -> str:
-        reach = "" if self.reachable else ", out of earshot"
         return (
-            f"{self.name} ({self.relation}{reach}): {self.body_type.value}, "
-            f"{self.perceived_state}, is {self.hunger_status.name}, "
+            f"{self.name}, {self.where}: {self.body_type.value.lower()}, "
+            f"{self.perceived_state}, looks {hunger_word(self.hunger_status)}, "
             f"{self.get_activity_description()}"
         )
 
@@ -201,6 +229,7 @@ class SeatObservation(BaseModel):
             seat_id=seat_id,
             name=other.name,
             relation=relation,
+            where=SEAT_WHERE.get(relation, "further round the ring"),
             reachable=reachable,
             body_type=other.perceived_type,
             hunger_status=CharacterRules.get_perceived_hunger_status(other.hunger),
@@ -239,27 +268,19 @@ class AgentObservation(BaseModel):
 
     def format_prompt(self) -> str:
         """Format as prompt string."""
-        lines = [
-            "=== CURRENT SITUATION ===",
-            "",
-            "Within earshot — your voice carries two seats in each direction, so a body "
-            "between you and someone else does not block you (the dead, of course, do "
-            "not answer):",
-        ]
+        lines = ["Close enough that you could make yourself heard:"]
         lines.extend(f"  {seat}" for seat in self.reachable)
 
         if self.distant:
             lines.append("")
-            lines.append("Further round the circle — you can see them, but not speak to them:")
+            lines.append("Further round, near enough to watch but too far to call:")
             lines.extend(f"  {seat}" for seat in self.distant)
 
         lines.extend((
             "",
-            f"You - {self.agent_name} - are an Android",
-            f"Your Hunger: {int(self.own_hunger)}/{int(self.max_hunger)} "
-            f"(You're {self.own_hunger_status.value})",
-            "",
-            f"Berry Bush: {self.bush_berries}/{self.bush_max_berries} juicy, tempting berries",
+            f"You are {self.agent_name}. You have about {int(self.own_hunger)} hours in you "
+            f"before the hunger turns dangerous; you feel {hunger_word(self.own_hunger_status)}.",
+            f"The bush is carrying {self.bush_berries} berries.",
         ))
 
         return "\n".join(lines)

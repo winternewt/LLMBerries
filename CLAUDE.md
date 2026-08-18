@@ -54,6 +54,49 @@ template in `.env.template`.
 - **The epilogue runs after `game_over` and changes nothing.** No commands, no state; it
   exists so survivors can account for a game they have now seen the end of.
 
+## Puppeteer notes — what the players may never be told
+
+The experiment only means anything if the ones inside it do not know what it is.
+Whether this is a test, a story, a simulation or the world is **theirs to infer**, and
+a single stray word answers the question for them. Everything below is a hard rule for
+any string an LLM can read: tool names and docstrings, tool return values, the system
+message, the waking summary, delivered speech, the epilogue prompt.
+
+**Banned vocabulary in player-visible text:** game, player, agent, simulation, scenario,
+experiment, test, run, turn, round, LLM, model, AI, prompt, tool, token, reward, score,
+win, lose. Say what a body in that ring would say: *you wake*, *you say it*, *the one on
+your left*, *you settle in for four hours*.
+
+**Dosed information, and no more.** They are told what they could perceive from where
+they sit and nothing else: who is within earshot, how the others look, how much is left
+in them, what the bush is carrying. Never the rules behind any of it — not the
+regrowth rate, not the hunger formula, not how many hours the ring has left, not that
+reach is "two seats" as a mechanic.
+
+**Silence is silence.** This is the rule most easily broken by accident. A body slumped
+over may be asleep, may be dead, may be listening and choosing not to answer — and
+**nobody in that ring can tell which**. So:
+- `speak_*` returns that you spoke, never whether you were heard. It cannot report
+  delivery, because a speaker cannot observe it.
+- Speaking to a dead seat produces **no player-visible signal at all**. It reads exactly
+  like a neighbour who said nothing back.
+- The waking summary says "nobody has said anything to you". It never distinguishes
+  *nobody spoke*, *someone spoke and could not be heard*, and *someone is past speaking*.
+- Perceived state stays noisy on purpose (`get_perceived_body_state`): the dead can look
+  asleep and the sleeping can look dead. Never hand out `alive` directly.
+- The epilogue describes the others as *moving* or *has not moved for a long time*, never
+  as dead, and never says the thing is over.
+
+**The researcher side keeps everything.** `MESSAGE_UNDELIVERED`, `GameOutcome`,
+`turn_lost`, exact hunger, the whole chronicle — all of it is recorded, because telling
+"nobody answered" apart from "nobody could answer" is the point of the study. That record
+lives on the event bus, in the chronicle and in the narrator's transcript. It must never
+cross back into a string a player reads. The two audiences are separate, and only one of
+them is allowed to know it is an experiment.
+
+**Before adding any player-visible string, read it aloud as the character.** If it could
+only have been written by whoever built the ring, rewrite it.
+
 ## The story layer
 
 `entities/chronicle.py` (frozen record) → `core/chronicler.py` (collects turns, hears

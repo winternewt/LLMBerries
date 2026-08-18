@@ -648,7 +648,8 @@ class FinishTurnCommand(Command):
 
             heard_from = pending.direction.label
             message_text = (
-                f"Hour {int(self.timestamp)}: {heard_from} ({agent.name}) says: {pending.content}"
+                f"About {int(self.timestamp)} hours in, {heard_from} ({agent.name}) "
+                f"said: {pending.content}"
             )
             state = state.with_agent_memory(
                 target_id, state.agent_memories[target_id].with_message(Role.system, message_text)

@@ -67,11 +67,13 @@ _DIRECTION_OFFSETS: dict = {
     MessageDirection.RIGHT_FAR: -2,
 }
 
+# How the listener would place the voice. Written as someone in the ring would say
+# it, not as a system would label it — see the puppeteer notes in CLAUDE.md.
 _DIRECTION_LABELS: dict = {
-    MessageDirection.LEFT: "your right neighbour",
-    MessageDirection.LEFT_FAR: "two seats to your right",
-    MessageDirection.RIGHT: "your left neighbour",
-    MessageDirection.RIGHT_FAR: "two seats to your left",
+    MessageDirection.LEFT: "the one on your right",
+    MessageDirection.LEFT_FAR: "the one two places to your right",
+    MessageDirection.RIGHT: "the one on your left",
+    MessageDirection.RIGHT_FAR: "the one two places to your left",
 }
 
 _DIRECTION_OPPOSITES: dict = {
