@@ -267,23 +267,6 @@ class Agent(BaseModel, ABC):
         return [self.think, *speaking, self.eat_berries, self.choose_sleep_duration]
 
 
-def _tool_calls_from(output: object) -> Tuple[ToolCall, ...]:
-    """Read the tools a run actually executed, in the order it called them."""
-    executions = getattr(output, "tools", None) or ()
-    calls = []
-    for execution in executions:
-        raw_args = getattr(execution, "tool_args", None) or {}
-        calls.append(
-            ToolCall(
-                name=getattr(execution, "tool_name", "unknown") or "unknown",
-                args={str(key): str(value) for key, value in raw_args.items()},
-                result=(getattr(execution, "result", None) or None),
-                failed=bool(getattr(execution, "tool_call_error", False)),
-            )
-        )
-    return tuple(calls)
-
-
 class ScriptedAgent(Agent):
     """A deterministic agent that plays by a fixed rule, making no API calls.
 
@@ -350,10 +333,12 @@ class LLMAgent(Agent):
 
     _model: object = PrivateAttr(default=None)
     _delivered: int = PrivateAttr(default=0)
+    _executed: List[ToolCall] = PrivateAttr(default_factory=list)
 
     def model_post_init(self, __context: object) -> None:
         self._model = build_model(self.provider)
         self._delivered = 0
+        self._executed = []
 
     def _system_message(self, observation: AgentObservation) -> str:
         """What this one is told about where it is.
@@ -478,7 +463,6 @@ class LLMAgent(Agent):
                 provider=self.provider.name,
                 model_id=self.provider.model_id,
                 output=output,
-                turn_lost=failed,
                 error=(output.content or "")[:300] if failed else None,
             )
             self.chronicler.record(record.model_copy(update={"kind": TurnKind.REFLECTION}))
@@ -517,17 +501,44 @@ class LLMAgent(Agent):
         return True
 
     def _paced_tool(self, function_name: str, function_call, arguments: dict):
-        """Pace the model call that follows each tool result.
+        """Pace the model call that follows each tool result, and record the tool.
 
         Agno's tool loop calls the model again after every tool, so pacing only the
         outer run() covered one call in a turn of five or six. The hook runs once per
         tool, which tracks the loop closely enough to keep a free tier happy.
+
+        It is also the only honest place to record what a turn did. `RunOutput.tools`
+        comes back empty when the run ends in an error, and by then the tools it did
+        run have already changed the world — a turn once emptied half the bush and was
+        written down as a turn that never happened. Recorded here, at the moment of
+        execution, the record cannot lose an action to a later failure.
         """
         get_provider_pacer(self.provider).acquire()
-        return function_call(**arguments)
+        try:
+            result = function_call(**arguments)
+        except Exception as failure:
+            self._executed.append(
+                ToolCall(
+                    name=function_name,
+                    args={str(key): str(value) for key, value in arguments.items()},
+                    result=str(failure),
+                    failed=True,
+                )
+            )
+            raise
+        self._executed.append(
+            ToolCall(
+                name=function_name,
+                args={str(key): str(value) for key, value in arguments.items()},
+                result=str(result) if result is not None else None,
+                failed=False,
+            )
+        )
+        return result
 
     def decide(self, observation: AgentObservation) -> None:
         observation_hour = self.engine.current_state.world_time
+        self._executed = []
         agno_agent = AgnoAgent(
             name=observation.agent_name,
             model=self._model,
@@ -553,14 +564,16 @@ class LLMAgent(Agent):
             output = agno_agent.run(heard)
             self._account_for(output)
 
-        turn_lost = output.status == RunStatus.error
-        if turn_lost:
-            # A refused call is not a decision. The engine ends the turn, so the
-            # agent simply loses it — recorded rather than silently skipped.
+        failed = output.status == RunStatus.error
+        if failed:
+            # A refused call is not a decision. But the tools that already ran are not
+            # undone by it: whatever this turn did to the world stands, and is recorded
+            # beside the error rather than replaced by it.
             logger.warning(
-                "%s (%s): turn lost, model call failed: %s",
+                "%s (%s): model call failed after %d tool call(s): %s",
                 observation.agent_name,
                 self.provider.name,
+                len(self._executed),
                 (output.content or "no content")[:200],
             )
         else:
@@ -585,8 +598,7 @@ class LLMAgent(Agent):
                     model_id=self.provider.model_id,
                     output=output,
                     misread=misreadings(self.engine, observation),
-                    tool_calls=_tool_calls_from(output),
-                    turn_lost=turn_lost,
-                    error=(output.content or "")[:300] if turn_lost else None,
+                    tool_calls=tuple(self._executed),
+                    error=(output.content or "")[:300] if failed else None,
                 )
             )

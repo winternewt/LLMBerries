@@ -67,13 +67,19 @@ def _describe_turn(turn: TurnRecord) -> str:
         if call.result:
             detail += f" -> {call.result}"
         lines.append(detail)
-    if turn.said_aloud and not turn.turn_lost:
+    if turn.said_aloud:
         lines.append(f"  summed up: {turn.said_aloud}")
     if turn.turn_lost:
         # The observation was real and the misreadings were measured; only the
         # decision is missing. Dropping the whole block hid what they were looking
         # at when their voice failed them.
         lines.append(f"  TURN LOST — took no action: {turn.error or 'model call failed'}")
+    if turn.turn_cut_short:
+        # Every action above this line really happened and stands. The refusal came
+        # afterwards, and only stopped whatever else the turn was going to do.
+        lines.append(
+            f"  CUT SHORT after the actions above: {turn.error or 'model call failed'}"
+        )
 
     return "\n".join(lines)
 

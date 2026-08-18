@@ -25,6 +25,16 @@ from core.chronicler import Chronicler, save_chronicle
 from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
 from core.game_engine import GameEngine
 from core.narrator import Narrator, render_transcript
+from core.replay import REPLAY_NAME, load_replay, rebuild, save_replay
+from core.record import (
+    CHRONICLE_NAME,
+    SESSION_LOG_NAME,
+    STORY_NAME,
+    TRANSCRIPT_NAME,
+    SessionLog,
+    describe_invocation,
+    open_run_directory,
+)
 from core.zombie import ZombieAgent, ZombieFlavour, parse_flavours
 from core.keydrum import LEDGER
 from entities.llm_configs import (
@@ -126,7 +136,16 @@ def report_spend() -> None:
 def report_losses(record) -> None:
     """Say plainly when a run was decided by refused calls rather than by choices."""
     lost = record.turns_lost()
+    cut = record.turns_cut_short()
     total = len(record.turns)
+
+    if cut:
+        typer.echo("")
+        typer.echo(
+            f"  {cut}/{total} turns were cut short: the call failed after the agent had "
+            "already acted. Those actions stand — read them in the transcript, they are "
+            "part of what happened."
+        )
     if lost == 0:
         return
 
@@ -180,7 +199,15 @@ def play(
         None, help="Comma-separated provider names; default is every configured provider"
     ),
     max_hours: int = typer.Option(MAX_RUN_TIME, help="Stop after this many game hours"),
-    seed: Optional[int] = typer.Option(None, help="Seed for the perception noise"),
+    seed: Optional[int] = typer.Option(
+        None, help="Seed for the perception noise; one is drawn and recorded if omitted"
+    ),
+    out: Path = typer.Option(
+        Path("runs"), help="Where run directories are written; each run gets its own"
+    ),
+    no_record: bool = typer.Option(
+        False, "--no-record", help="Do not write a run directory (nothing is kept)"
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Log every engine event"),
     story: Optional[Path] = typer.Option(
         None, help="Write the narrated story here (needs a live provider)"
@@ -203,8 +230,18 @@ def play(
     )
     load_dotenv()
 
-    if seed is not None:
-        random.seed(seed)
+    # A run with no seed cannot be replayed, and "I did not pass one" is not a reason
+    # to lose that. One is drawn, used, and written into the record either way.
+    if seed is None:
+        seed = random.randrange(2**31)
+    random.seed(seed)
+
+    run_dir: Optional[Path] = None
+    session_log: Optional[SessionLog] = None
+    if not no_record:
+        run_dir = open_run_directory(out)
+        session_log = SessionLog(run_dir / SESSION_LOG_NAME).attach(describe_invocation(seed))
+        typer.echo(f"Recording this run in {run_dir}")
 
     provider_specs = resolve_providers(providers)
     flavours = parse_flavours(zombies) if zombies else []
@@ -267,13 +304,23 @@ def play(
     report_losses(record)
     report_spend()
 
+    rendered = render_transcript(record)
+
+    if run_dir is not None:
+        save_chronicle(record, run_dir / CHRONICLE_NAME)
+        (run_dir / TRANSCRIPT_NAME).write_text(rendered, encoding="utf-8")
+        # The transcript is a reading of the game; the replay is the game. Written
+        # beside each other, always, because the one that can be re-run is the one
+        # nobody thinks to ask for until they need it.
+        save_replay(engine, seed, run_dir / REPLAY_NAME)
+
     if chronicle_out is not None:
         save_chronicle(record, chronicle_out)
         typer.echo(f"Chronicle: {chronicle_out}")
 
     if transcript is not None:
         transcript.parent.mkdir(parents=True, exist_ok=True)
-        transcript.write_text(render_transcript(record), encoding="utf-8")
+        transcript.write_text(rendered, encoding="utf-8")
         typer.echo(f"Transcript: {transcript}")
 
     if story is not None:
@@ -287,10 +334,24 @@ def play(
                 f"built from actions and messages only."
             )
         typer.echo(f"Narrating with {teller.name}...")
+        told = Narrator(teller).narrate(record)
         story.parent.mkdir(parents=True, exist_ok=True)
-        story.write_text(Narrator(teller).narrate(record), encoding="utf-8")
+        story.write_text(told, encoding="utf-8")
         typer.echo(f"Story: {story}")
+        if run_dir is not None:
+            (run_dir / STORY_NAME).write_text(told, encoding="utf-8")
+
+    if run_dir is not None:
+        typer.echo("")
+        typer.echo(
+            f"Kept in {run_dir}: {SESSION_LOG_NAME}, {TRANSCRIPT_NAME}, "
+            f"{CHRONICLE_NAME}, {REPLAY_NAME}"
+        )
+        typer.echo(f"Replay this run with --seed {seed}")
+    if session_log is not None:
+        session_log.detach()
 
 
 if __name__ == "__main__":
     app()
+

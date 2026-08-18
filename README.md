@@ -51,6 +51,10 @@ uv run python main.py --agents 3 --providers groq,google \
 # Narrate a game you already played (--transcript-only needs no key)
 uv run python scripts/narrate.py run.json --out story.md
 
+# Rebuild a finished game from its commands — no keys, no model calls
+uv run python scripts/replay.py runs/20260819T012345Z
+uv run python scripts/replay.py runs/20260819T012345Z --at 12   # stop part way
+
 # Run tests (no API calls, no mocks)
 uv run pytest tests/
 ```
@@ -62,8 +66,9 @@ uv run pytest tests/
 ```
 LLMBerries/
 ├── entities/              # Immutable game state (DTOs), events, memory, providers
-├── core/                  # Game engine, commands, agents, request pacing
-├── scripts/               # Operational one-offs (key_test.py)
+├── core/                  # Game engine, commands, agents, pacing, record, replay
+├── scripts/               # Operational one-offs (key_test, narrate, replay, sustainability)
+├── runs/                  # One directory per run, written automatically (git-ignored)
 ├── tests/                 # Test suite — real engine, no mocks
 ├── main.py                # Game runner
 ├── DESIGN.md              # Game mechanics & rules
@@ -191,12 +196,33 @@ to close the story.
 
 ## 📖 Output: stories, not log files
 
-A run leaves three artifacts, in rising order of interpretation:
+**Every run records itself.** No flag needed and nothing to remember: each game opens
+`runs/<UTC stamp>/` before it starts and writes there. Two runs never share a directory,
+so nothing is ever written over. `--out` moves the parent; `--no-record` opts out.
+
+| File | What it is |
+|------|-----------|
+| `session.log` | Everything the run emitted, attached before the first hour — a crash still leaves the log up to the crash |
+| `chronicle.json` | Structured record: every turn, the model's own reasoning trace where the provider returns one, every tool call, everything the agent heard |
+| `transcript.txt` | The same record as readable text. No model involved, so nothing is invented |
+| `replay.json` | The game itself: the initial state plus every command in order |
+| `story.md` | Written only when `--story` asked for one |
+
+`replay.json` is the one that is not a rendering. The engine is a command pattern over
+frozen state, so those commands rebuild the identical world — the same hunger, the same
+berry count, the same hour. `scripts/replay.py` plays it back with no key and no model
+call, and refuses loudly if the rebuild lands anywhere but where the run ended. `--at N`
+stops at the start of an hour, which is where a branch is taken from.
+
+Runs are seeded whether or not you pass `--seed`: one is drawn, used, and printed at the
+end, so "I forgot to pass a seed" never costs a reproducible run.
+
+The same three can still be written wherever you like:
 
 | Flag | What it is |
 |------|-----------|
-| `--chronicle run.json` | Structured record: every turn, the model's own reasoning trace where the provider returns one, every tool call, everything the agent heard |
-| `--transcript run.txt` | The same record as readable text. No model involved, so nothing is invented |
+| `--chronicle run.json` | A copy of the chronicle at a path you choose |
+| `--transcript run.txt` | A copy of the transcript |
 | `--story story.md` | A narrator model reads the transcript in chapters and tells the story — what each agent reasoned, what it believed about its neighbours, where that belief was wrong |
 
 The narrator is held to the transcript: it is instructed to quote recorded reasoning,

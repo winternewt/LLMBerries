@@ -12,11 +12,17 @@ them all. Read in this order before changing anything:
 
 ```bash
 uv sync
-uv run pytest tests/                       # 55 tests, no API calls, no mocks
+uv run pytest tests/                       # 219 tests, no API calls, no mocks
 uv run python scripts/key_test.py          # are the keys live, does pacing hold
 uv run python main.py --scripted --agents 5
 uv run python main.py --agents 3 --providers google,groq
+uv run python scripts/replay.py runs/<stamp>      # rebuild a finished game, no keys
+uv run python scripts/replay.py runs/<stamp> --at 12
 ```
+
+Every run writes `runs/<UTC stamp>/` with `session.log`, `transcript.txt`,
+`chronicle.json` and `replay.json` unless `--no-record` says otherwise. `--out`
+moves the parent directory.
 
 Never `uv pip install`; never bare `python`. Keys live in `.env` (git-ignored),
 template in `.env.template`.
@@ -53,6 +59,22 @@ template in `.env.template`.
   waking rate and made long sleep pointless.
 - **The epilogue runs after `game_over` and changes nothing.** No commands, no state; it
   exists so survivors can account for a game they have now seen the end of.
+- **Every run records itself, and no run overwrites another.** `core/record.py` opens a
+  fresh timestamped directory before the game starts and attaches the session log to it,
+  so a crash still leaves everything up to the crash. Artifacts were opt-in once, to
+  caller-named paths, which meant an unasked run left nothing and a second run under the
+  same name destroyed the first.
+- **`replay.json` is the game; `transcript.txt` is a reading of it.** The command history
+  plus the initial state rebuild the identical `WorldState`, which is why nothing may
+  mutate state outside `execute_command`. `rebuild()` compares against the recorded ending
+  and raises on a mismatch — a diverged replay is a different game, not a nearly-right one.
+  Commands are found by walking `Command.__subclasses__()`, so a new command is replayable
+  the day it is written; an unknown name in a file is refused, never skipped.
+- **A turn that errored is not a turn that did nothing.** Agno runs tools one at a time and
+  re-calls the model between them, so a refusal can arrive after the agent has already
+  eaten. `RunOutput.tools` comes back *empty* on a failed run, so tools are recorded in
+  `LLMAgent._paced_tool` as they execute. `TurnRecord.turn_lost` and `.turn_cut_short` are
+  derived from `error` and `tool_calls`, never stored beside them.
 
 ## Puppeteer notes — what the players may never be told
 
@@ -143,6 +165,8 @@ in that path touches game state.
   requires it to say when reasoning was not captured. If that brief is edited, keep that
   clause — the point of the whole layer is the agents' own stated reasons.
 - A lost turn (failed model call) is recorded as a turn, marked `TURN LOST`, not dropped.
+  A turn whose call failed *after* the agent acted is marked `CUT SHORT` and keeps every
+  action above it — those really happened and the world kept them.
 
 ## Gotchas learned here
 
@@ -158,6 +182,14 @@ in that path touches game state.
 - **Agno's tool loop calls the model once per tool**, so pacing only `run()` covered one
   call in a turn of six. `LLMAgent` passes a `tool_hooks` entry that acquires the pacer
   before each tool, which tracks the loop.
+- **`RunOutput.tools` is empty when the run ends in an error**, and the tools it ran have
+  already changed the world. One recorded run had an agent harvest 20 berries, set an
+  8-hour sleep and send a message before the daily cap hit; the chronicle said `turn_lost`
+  with no actions, and half the bush vanished with nothing in the record to explain it.
+  Tools are recorded in the hook now, at execution. Never read them off the run output.
+- **`model_copy(update=...)` skips validation.** `execute_command` stamped
+  `float(world_time)` into an `int` field for months and it only surfaced as a Pydantic
+  serializer warning the first time history was written to disk.
 - `AgentDecisionCallback` must stay `@runtime_checkable`: `GameEngine` is a Pydantic model
   and cannot build a validator for a plain Protocol.
 

@@ -263,10 +263,12 @@ class GameEngine(BaseModel):
         Returns:
             Tuple of events generated
         """
-        # Update command metadata
+        # Update command metadata. `model_copy` skips validation, so the float this
+        # once wrapped world_time in sat in an int field unchecked and only showed up
+        # when the history was serialised for replay. World time is whole hours.
         cmd = cmd.model_copy(update={
             "sequence_number": len(self.history),
-            "timestamp": float(self.current_state.world_time)
+            "timestamp": self.current_state.world_time,
         })
         
         # Execute command

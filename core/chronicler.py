@@ -83,6 +83,9 @@ class Chronicler:
                 turns_lost=sum(
                     1 for t in self.turns if t.agent_id == agent.agent_id and t.turn_lost
                 ),
+                turns_cut_short=sum(
+                    1 for t in self.turns if t.agent_id == agent.agent_id and t.turn_cut_short
+                ),
             )
             for agent in state.agents
         )
@@ -163,7 +166,6 @@ def turn_from_run(
     output: Optional[object] = None,
     tool_calls: tuple = (),
     misread: tuple = (),
-    turn_lost: bool = False,
     error: Optional[str] = None,
 ) -> TurnRecord:
     """Build a `TurnRecord`, pulling reasoning off an Agno run output when there is one.
@@ -174,7 +176,9 @@ def turn_from_run(
     reasoning: Optional[str] = None
     said: Optional[str] = None
 
-    if output is not None:
+    if output is not None and error is None:
+        # On a failed run Agno puts the provider's error JSON in `content`. Reading it
+        # as speech would put an HTTP error in an agent's mouth; it belongs in `error`.
         raw_reasoning = getattr(output, "reasoning_content", None)
         reasoning = raw_reasoning.strip() if isinstance(raw_reasoning, str) and raw_reasoning.strip() else None
         raw_content = getattr(output, "content", None)
@@ -194,6 +198,5 @@ def turn_from_run(
         said_aloud=said,
         tool_calls=tool_calls,
         misread=misread,
-        turn_lost=turn_lost,
         error=error,
     )

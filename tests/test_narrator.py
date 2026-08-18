@@ -164,7 +164,7 @@ def test_transcript_marks_a_lost_turn_rather_than_dropping_it() -> None:
     chronicle = GameChronicle(
         agent_count=3,
         hours_played=1,
-        turns=(make_turn(0, provider="cerebras", turn_lost=True, error="402 payment required"),),
+        turns=(make_turn(0, provider="cerebras", error="402 payment required"),),
         agents=(),
         berries_left=1.0,
     )
@@ -257,7 +257,6 @@ def test_a_lost_turn_keeps_what_the_agent_was_looking_at() -> None:
                 provider="groq",
                 neighbours=("Bob, on your left: android, seems asleep, looks fed, said nothing",),
                 misread=("read Bob as gone; Bob was alive with 9 hours left",),
-                turn_lost=True,
                 error="rate_limit_exceeded",
             ),
         ),
@@ -276,7 +275,7 @@ def test_the_chronicle_counts_lost_turns() -> None:
     chronicle = GameChronicle(
         agent_count=3,
         hours_played=2,
-        turns=(make_turn(0), make_turn(1, turn_lost=True), make_turn(1, turn_lost=True)),
+        turns=(make_turn(0), make_turn(1, error="refused"), make_turn(1, error="refused")),
         agents=(),
         berries_left=1.0,
     )

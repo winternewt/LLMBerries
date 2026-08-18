@@ -82,10 +82,26 @@ class TurnRecord(BaseModel):
                     "Only the record knows these; the reader of the situation never does."
     )
     tool_calls: Tuple[ToolCall, ...] = Field(default=())
-    turn_lost: bool = Field(
-        default=False, description="True when the model call failed and the turn was forfeited"
+    error: Optional[str] = Field(
+        default=None, description="Provider failure text, when the model call failed"
     )
-    error: Optional[str] = Field(default=None, description="Why the turn was lost, if it was")
+
+    @property
+    def turn_lost(self) -> bool:
+        """True only when the call failed and the agent got nothing done.
+
+        Derived rather than stored, because the two can disagree and the stored
+        version was the one that lied: Agno's tool loop executes tools one at a
+        time and can fail on a later call, leaving every earlier tool already
+        applied to the world. A turn that ate twenty berries and then hit the
+        daily cap is not a turn nobody took.
+        """
+        return self.error is not None and not self.tool_calls
+
+    @property
+    def turn_cut_short(self) -> bool:
+        """The call failed part way, after the agent had already acted."""
+        return self.error is not None and bool(self.tool_calls)
 
     def spoke_to(self) -> Tuple[str, ...]:
         """Messages this agent sent, as `direction: text`."""
@@ -148,6 +164,9 @@ class AgentSummary(BaseModel):
     )
     turns_taken: int = Field(ge=0)
     turns_lost: int = Field(ge=0, description="Turns forfeited to a failed model call")
+    turns_cut_short: int = Field(
+        default=0, description="Turns where the call failed after the agent had acted"
+    )
 
 
 class GameChronicle(BaseModel):
@@ -193,6 +212,15 @@ class GameChronicle(BaseModel):
     def turns_lost(self) -> int:
         """Turns nobody got to take because a provider refused."""
         return sum(1 for turn in self.turns if turn.turn_lost)
+
+    def turns_cut_short(self) -> int:
+        """Turns that acted on the world and then hit a refusal part way through.
+
+        These are the dangerous ones: the world moved, and until the actions were
+        recorded alongside the error the record showed an hour in which nothing
+        happened and the bush had emptied anyway.
+        """
+        return sum(1 for turn in self.turns if turn.turn_cut_short)
 
     def has_reasoning(self) -> bool:
         """Whether any provider in this run actually exposed its reasoning."""

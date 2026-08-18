@@ -1,6 +1,6 @@
 # LLMBerries - Development Roadmap
 
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-19
 
 ---
 
@@ -16,9 +16,21 @@
     depend on the framework. Needed before any cross-model comparison is credible.
 
 - [ ] **Turn-loss accounting as an event**
-  - A refused model call is now recorded in the chronicle (`turn_lost`, and
-    `turns_lost` per agent) and shows in the transcript. It is still not a `GameEvent`,
-    so a bus subscriber cannot see it happen live.
+  - A refused model call is recorded in the chronicle (`turn_lost` / `turn_cut_short`,
+    and both counts per agent) and shows in the transcript. It is still not a
+    `GameEvent`, so a bus subscriber cannot see it happen live.
+
+- [ ] **The epilogue leaves no record for an agent with no model**
+  - A scripted or zombie survivor is asked to reflect and says nothing, which is
+    honest for a scripted agent but wrong for a zombie: babbling is what it does, and
+    a 48-hour zombie run ended with the survivor's last round absent from the record
+    entirely. Give `ZombieAgent` a reflection that babbles, recorded as `REFLECTION`.
+
+- [ ] **A second message in one direction silently replaces the first**
+  - `CharacterState.with_message` keeps one pending message per direction, so a model
+    that calls `speak_to_right` twice in a turn has its first line dropped and is told
+    "message prepared" both times. Observed in a live run. Either keep the queue or
+    record the drop; the current behaviour is invisible on both sides.
 
 - [ ] **Narrator quality**
   - Chapters carry only the previous two passages as context, so a long game can lose
