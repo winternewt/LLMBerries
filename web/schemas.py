@@ -84,6 +84,21 @@ class HourState(BaseModel):
     agents: List[SeatState]
 
 
+class ProviderHealth(BaseModel):
+    """Whether one provider's key can actually complete a call right now."""
+
+    name: str
+    model_id: str
+    ok: bool
+    error: Optional[str] = None
+
+
+class ProbeResponse(BaseModel):
+    age_s: float
+    ttl_s: float
+    providers: List[ProviderHealth]
+
+
 class LaunchRequest(BaseModel):
     """A game asked for from the browser. Closed vocabulary, no free text.
 

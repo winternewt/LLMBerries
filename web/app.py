@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from web import live, runs
+from web import live, probe, runs
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -27,7 +27,9 @@ def create_app(runs_root: Path = Path("runs")) -> FastAPI:
     app.state.runs_root = runs_root
     app.state.snapshots = runs.SnapshotCache()
     app.state.games = live.LiveGameManager(runs_root)
+    app.state.key_probe = probe.ProbeCache()
     app.include_router(runs.router)
     app.include_router(live.router)
+    app.include_router(probe.router)
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app

@@ -250,12 +250,6 @@ async function showLive() {
 
 async function showLaunch() {
   const meta = await api.meta();
-  const providerBoxes = meta.providers
-    .map(
-      (name) =>
-        `<label><input type="checkbox" name="provider" value="${esc(name)}"> ${esc(name)}</label>`
-    )
-    .join(" ");
   const zombieOptions = ["<option value=''>none</option>"]
     .concat(meta.zombie_flavours.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`))
     .join("");
@@ -269,9 +263,9 @@ async function showLaunch() {
       <label>seats</label><input type="number" name="agents" min="${meta.min_agents}" max="8" value="5">
       <label>scripted (no keys)</label><input type="checkbox" name="scripted" checked>
       <label>zombie in the last seat</label><select name="zombie">${zombieOptions}</select>
-      <label>minds (unchecked = all)</label><div>${providerBoxes}</div>
+      <label>minds</label><div id="minds-row" class="dim">probing the keys…</div>
       <label>framing</label><select name="framing">${framingOptions}</select>
-      <label>hours at most</label><input type="number" name="max_hours" min="1" max="${meta.max_hours_default}" value="24">
+      <label>game hours before it stops</label><input type="number" name="max_hours" min="1" max="${meta.max_hours_default}" value="24" title="Cap on game hours; the run can end earlier on its own (extinction, last standing, equilibrium)">
       <label>seed (blank = drawn)</label><input type="number" name="seed">
       <label>pause between hours (s)</label><input type="number" name="hour_delay" min="0" max="10" step="0.5" value="1">
       <label>keep the recording</label><input type="checkbox" name="record" checked>
@@ -280,10 +274,51 @@ async function showLaunch() {
     <div id="launch-note" class="dim"></div>`
   );
 
+  // The minds row waits for a real probe: a key that authenticates but cannot
+  // complete (a drained balance) would seat an agent that loses every turn, so a
+  // dead provider is shown with its refusal and cannot be picked — and the live
+  // ones are pre-checked so the request always names its minds outright.
+  let liveNames = [];
+  async function renderMinds(refresh) {
+    const row = document.getElementById("minds-row");
+    if (!row) return; // the user navigated away mid-probe
+    row.className = "dim";
+    row.textContent = refresh ? "re-probing…" : "probing the keys…";
+    let probe;
+    try {
+      probe = await api.providers(refresh);
+    } catch (err) {
+      row.innerHTML = `<span class="alert">probe failed: ${esc(err.message)}</span>`;
+      return;
+    }
+    if (!document.getElementById("minds-row")) return;
+    liveNames = probe.providers.filter((p) => p.ok).map((p) => p.name);
+    const boxes = probe.providers
+      .map((p) =>
+        p.ok
+          ? `<label><input type="checkbox" name="provider" value="${esc(p.name)}" checked> ${esc(p.name)}</label>`
+          : `<label class="dim" title="${esc(p.error ?? "")}"><input type="checkbox" disabled> ${esc(p.name)} <span class="alert">✕ ${esc((p.error ?? "dead").slice(0, 60))}</span></label>`
+      )
+      .join("<br>");
+    row.className = "";
+    row.innerHTML =
+      `${boxes}<br><span class="dim">probed ${Math.round(probe.age_s)}s ago · </span>` +
+      `<button type="button" id="reprobe">[ RE-PROBE ]</button>`;
+    document.getElementById("reprobe").addEventListener("click", () => renderMinds(true));
+  }
+  renderMinds(false);
+
   document.getElementById("launch-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target;
+    const note = document.getElementById("launch-note");
     const chosen = [...form.querySelectorAll("input[name=provider]:checked")].map((b) => b.value);
+    if (!form.scripted.checked && !chosen.length) {
+      note.innerHTML = liveNames.length
+        ? `<span class="alert">pick at least one mind, or check scripted</span>`
+        : `<span class="alert">no key can complete a call right now — scripted is the only game on offer</span>`;
+      return;
+    }
     const request = {
       agents: Number(form.agents.value),
       scripted: form.scripted.checked,
@@ -295,7 +330,6 @@ async function showLaunch() {
       hour_delay: Number(form.hour_delay.value),
       record: form.record.checked,
     };
-    const note = document.getElementById("launch-note");
     try {
       const born = await api.launch(request);
       note.textContent = `running as ${born.stamp ?? "(unrecorded)"}, seed ${born.seed}`;

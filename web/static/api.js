@@ -34,6 +34,7 @@ export const api = {
   runs: () => getJSON("/api/runs"),
   run: (stamp) => getJSON(`/api/runs/${stamp}`),
   state: (stamp, hour) => getJSON(`/api/runs/${stamp}/state?hour=${hour}`),
+  providers: (refresh) => getJSON(`/api/providers${refresh ? "?refresh=true" : ""}`),
   current: () => getJSON("/api/games/current"),
   currentState: () => getJSON("/api/games/current/state"),
   launch: (request) => postJSON("/api/games", request),
