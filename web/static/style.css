@@ -1,0 +1,150 @@
+/* Phosphor terminal: black glass, violet trace. Everything is monospace and
+   every panel is a box someone could have drawn with cursor keys. */
+
+:root {
+  --bg: #050208;
+  --bg-raised: #0d0517;
+  --panel: #14081f;
+  --chrome: #3a1554;
+  --text: #b06ae0;
+  --bright: #d0a0ff;
+  --dim: #6b4090;
+  --alert: #ff5577;
+  --ok: #7fe0a8;
+  --font: "Cascadia Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+body.crt::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(20, 4, 34, 0.28) 3px
+  );
+  mix-blend-mode: multiply;
+}
+
+body.crt {
+  text-shadow: 0 0 6px rgba(176, 106, 224, 0.35);
+}
+
+a, a:visited { color: var(--bright); text-decoration: none; }
+a:hover { background: var(--chrome); }
+
+pre { margin: 0; font-family: inherit; }
+
+button, select, input {
+  font: inherit;
+  color: var(--bright);
+  background: var(--bg-raised);
+  border: 1px solid var(--chrome);
+  padding: 0.15em 0.6em;
+  cursor: pointer;
+}
+button:hover { background: var(--chrome); }
+input[type="number"] { width: 6em; cursor: text; }
+
+#masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 2em;
+  padding: 0.8em 1.2em 0.4em;
+  border-bottom: 1px solid var(--chrome);
+  background: var(--bg-raised);
+}
+#banner { color: var(--bright); }
+#nav { display: flex; gap: 1em; }
+#nav a.active { color: var(--bg); background: var(--text); }
+
+#view { padding: 1.2em; max-width: 110em; margin: 0 auto; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--chrome);
+  padding: 0.6em 1em;
+  margin-bottom: 1em;
+  overflow-x: auto;
+}
+.panel > .panel-title {
+  color: var(--bright);
+  margin: -0.6em -1em 0.6em;
+  padding: 0.15em 1em;
+  border-bottom: 1px solid var(--chrome);
+}
+
+.dim    { color: var(--dim); }
+.bright { color: var(--bright); }
+.alert  { color: var(--alert); }
+.ok     { color: var(--ok); }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 0.15em 1em 0.15em 0; white-space: nowrap; }
+th { color: var(--dim); font-weight: normal; }
+tr.row:hover { background: var(--bg-raised); cursor: pointer; }
+
+.badge {
+  border: 1px solid var(--chrome);
+  padding: 0 0.4em;
+  color: var(--dim);
+}
+.badge.alert { color: var(--alert); border-color: var(--alert); }
+
+/* The circle: seats absolutely placed on a ring, bush gauge in the middle. */
+#ring {
+  position: relative;
+  width: 100%;
+  max-width: 64em;
+  height: 30em;
+  margin: 0 auto;
+}
+.seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--panel);
+  border: 1px solid var(--chrome);
+  padding: 0.3em 0.7em;
+  min-width: 15em;
+}
+.seat.dead { border-color: var(--alert); color: var(--dim); }
+.seat .glyph { color: var(--bright); }
+.seat.dead .glyph { color: var(--alert); }
+#bush {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--ok);
+}
+
+#timeline { letter-spacing: 0.1em; cursor: pointer; user-select: none; }
+#timeline .cell.cursor { background: var(--text); color: var(--bg); }
+#timeline .cell.death { color: var(--alert); }
+
+.turn { border-top: 1px dashed var(--chrome); padding: 0.5em 0; }
+.turn:first-child { border-top: none; }
+.turn .reasoning { color: var(--dim); white-space: pre-wrap; }
+.turn .said { color: var(--bright); white-space: pre-wrap; }
+.turn .toolcall { white-space: pre-wrap; }
+.turn .misread { color: var(--alert); }
+
+.flow { white-space: pre; }
+.flow .unheard { color: var(--alert); }
+
+form.launch { display: grid; grid-template-columns: 14em 1fr; gap: 0.5em 1em; align-items: center; max-width: 46em; }
+form.launch label { color: var(--dim); }

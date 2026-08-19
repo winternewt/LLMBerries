@@ -11,18 +11,21 @@ requires-python = ">=3.12"
 dependencies = [
     "agno>=2.9.0",
     "cerebras-cloud-sdk>=1.91.0",
+    "fastapi>=0.141.1",
     "google-genai>=2.18.1",
     "groq>=1.6.0",
     "openai>=2.54.0",
     "pydantic>=2.10.0",
     "python-dotenv>=1.2.3",
     "typer>=0.27.1",
+    "uvicorn>=0.52.3",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["core", "entities"]
+packages = ["core", "entities", "web"]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=9.1.1",
 ]
