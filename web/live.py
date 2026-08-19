@@ -27,6 +27,7 @@ from core.game_engine import GameEngine
 from core.runner import GameConfig, PreparedGame, prepare_game, run_prepared, write_artifacts
 from entities.chronicle import TurnRecord
 from entities.events import GameEvent
+from web.runs import to_hour_state
 from web.schemas import LaunchRequest
 
 logger = logging.getLogger(__name__)
@@ -193,6 +194,15 @@ def launch_game(request: Request, launch: LaunchRequest) -> dict:
 @router.get("/games/current")
 def current_game(request: Request) -> dict:
     return manager_of(request).snapshot()
+
+
+@router.get("/games/current/state")
+def current_game_state(request: Request):
+    """The running world as it stands — the live twin of the archive's state view."""
+    state = manager_of(request).latest_state
+    if state is None:
+        raise HTTPException(status_code=404, detail="no world yet")
+    return to_hour_state(state, hour=state.world_time, last_hour=state.world_time)
 
 
 @router.post("/games/current/stop")

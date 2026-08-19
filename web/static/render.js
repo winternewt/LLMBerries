@@ -27,8 +27,10 @@ export function ring(state, summaries, maxHunger) {
       const x = 50 + 42 * Math.cos(angle);
       const y = 50 + 40 * Math.sin(angle);
       const who = summaries?.[seat.agent_id] ?? {};
+      // Provider comes from the record (live: learned from the first turn); the
+      // Human/Android mark comes from the state itself, which always knows.
       const tag = who.provider ?? "scripted";
-      const mark = who.perceived_type === "Human" ? "Ⓗ" : "Ⓐ";
+      const mark = seat.perceived_type === "Human" ? "Ⓗ" : "Ⓐ";
       const dead = seat.body_state === "dead";
       const line2 = dead
         ? `died hour ${Math.floor(seat.time_of_death ?? 0)} · ate ${seat.total_berries_consumed}`

@@ -15,9 +15,27 @@ async function getJSON(url) {
   return res.json();
 }
 
+async function postJSON(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data.detail;
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail ?? res.status));
+  }
+  return data;
+}
+
 export const api = {
   meta: () => getJSON("/api/meta"),
   runs: () => getJSON("/api/runs"),
   run: (stamp) => getJSON(`/api/runs/${stamp}`),
   state: (stamp, hour) => getJSON(`/api/runs/${stamp}/state?hour=${hour}`),
+  current: () => getJSON("/api/games/current"),
+  currentState: () => getJSON("/api/games/current/state"),
+  launch: (request) => postJSON("/api/games", request),
+  stop: () => postJSON("/api/games/current/stop"),
 };

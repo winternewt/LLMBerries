@@ -189,7 +189,11 @@ def run_state(request: Request, stamp: str, hour: int = 0) -> HourState:
             status_code=404, detail=f"{stamp} has hours 0..{last_hour}, not {hour}"
         )
 
-    state = snapshots[hour]
+    return to_hour_state(snapshots[hour], hour=hour, last_hour=last_hour)
+
+
+def to_hour_state(state: WorldState, hour: int, last_hour: int) -> HourState:
+    """One world state in the shape both the scrubber and the live view read."""
     return HourState(
         hour=hour,
         last_hour=last_hour,
