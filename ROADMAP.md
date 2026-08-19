@@ -185,6 +185,9 @@
 - **Emergence:** Do novel strategies emerge over time?
 - **Cross-Model Studies:** How do different LLMs behave (GPT vs Claude vs Gemini)?
 - **Personality Variants:** Same LLM with different system prompts
+- **Framing:** `--framing silent|tinag|scored` exists and is recorded per run. What is
+  still missing is the comparison itself — the same seed, the same seating and the same
+  providers played through all three arms, with the reflections read side by side.
 
 ---
 

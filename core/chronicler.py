@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 from core.constants import HUNGER_STEP
 from core.enums import BodyState, EventType
+from core.framing import Framing
 from core.game_engine import GameEngine
 from entities.chronicle import AgentSummary, Death, GameChronicle, TurnRecord, Unheard
 from entities.observations import AgentObservation
@@ -23,8 +24,11 @@ logger = logging.getLogger(__name__)
 class Chronicler:
     """Watches one game and produces its `GameChronicle`."""
 
-    def __init__(self, engine: GameEngine) -> None:
+    def __init__(self, engine: GameEngine, framing: Framing = Framing.SILENT) -> None:
         self.engine: GameEngine = engine
+        # Carried so the sealed chronicle says which arm was played. A run whose frame
+        # can only be recovered from the command line is a run nobody can file.
+        self.framing: Framing = framing
         self.turns: List[TurnRecord] = []
         self.deaths: List[Death] = []
         self.unheard: List[Unheard] = []
@@ -94,6 +98,7 @@ class Chronicler:
         return GameChronicle(
             agent_count=state.agent_count,
             hours_played=state.world_time,
+            framing=self.framing.value,
             turns=tuple(self.turns),
             deaths=tuple(self.deaths),
             unheard=tuple(self.unheard),

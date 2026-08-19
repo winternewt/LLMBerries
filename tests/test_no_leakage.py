@@ -8,6 +8,11 @@ themselves.
 
 It also pins the harder rule: silence must be indistinguishable. Speaking to a body
 that will never answer must read exactly like speaking to someone who chose not to.
+
+One documented exception exists: the framing arms in `core/framing.py`, which name
+the machinery deliberately and are recorded per run. Everything scanned here is
+scanned on the silent arm — the default — and `tests/test_framing.py` pins that a
+framed arm adds its block and changes nothing else.
 """
 
 import re
@@ -18,6 +23,7 @@ import pytest
 from core.agent import Agent, LLMAgent, ScriptedAgent
 from core.commands import FinishTurnCommand, SpeakCommand
 from core.enums import BodyState, MessageDirection
+from core.framing import Framing
 from core.game_engine import GameEngine
 from entities.llm_configs import GOOGLE
 from entities.observations import AgentObservation
@@ -110,10 +116,12 @@ def test_the_situation_they_are_shown_stays_in_character() -> None:
 
 
 def test_what_they_are_told_they_are_stays_in_character() -> None:
+    """On the silent arm, which is what `llm_agent` builds and what a run defaults to."""
     engine = new_game()
     agent = llm_agent(engine)
     observation = AgentObservation.from_state(engine.current_state, 0)
 
+    assert agent.framing is Framing.SILENT
     assert leaks(agent._system_message(observation)) == []
 
 

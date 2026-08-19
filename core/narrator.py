@@ -99,6 +99,10 @@ def render_transcript(chronicle: GameChronicle) -> str:
     lines: List[str] = [
         f"{chronicle.agent_count} agents, {chronicle.hours_played} hours, "
         f"{chronicle.berries_left:.1f} berries left on the bush.",
+        # The frame is a condition of the run, not a detail of it: two transcripts
+        # differing only here are the whole comparison, and a reader who cannot see
+        # which arm they are holding will attribute the difference to the models.
+        f"Framing: {chronicle.framing}.",
         "",
     ]
 

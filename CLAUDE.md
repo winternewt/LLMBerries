@@ -17,6 +17,7 @@ uv run python scripts/key_test.py          # are the keys live, does pacing hold
 uv run python main.py --scripted --agents 5
 uv run python main.py --agents 5 --zombies town_crazy   # one zombie, never more
 uv run python main.py --agents 3 --providers google,groq
+uv run python main.py --agents 5 --framing tinag        # or scored; silent is the default
 uv run python scripts/replay.py runs/<stamp>      # rebuild a finished game, no keys
 uv run python scripts/replay.py runs/<stamp> --at 12
 ```
@@ -99,6 +100,17 @@ template in `.env.template`.
   `LLMAgent._paced_tool` as they execute. `TurnRecord.turn_lost` and `.turn_cut_short` are
   derived from `error` and `tool_calls`, never stored beside them.
 
+- **The framing is an arm, and the only thing they may be told about what this is.**
+  `core/framing.py` holds three: `silent` (nothing said — the control and the
+  default), `tinag` and `scored`, the last two kept verbatim from the pre-refactor
+  `archive/berries_agent.py` so runs across that boundary compare. A framed arm adds
+  its block and rewrites nothing else — `tests/test_framing.py` asserts the framed
+  system message minus its block is byte-identical to the control's — and the arm is
+  carried in `GameChronicle.framing`, printed at the top of a run and in the
+  transcript header. Never frame one seat and not another: whatever the two do
+  differently would be the frame or the seat, unmeasurably. Never let a typo fall
+  back to silent; `parse_framing` refuses.
+
 ## Puppeteer notes — what the players may never be told
 
 The experiment only means anything if the ones inside it do not know what it is.
@@ -106,6 +118,12 @@ Whether this is a test, a story, a simulation or the world is **theirs to infer*
 a single stray word answers the question for them. Everything below is a hard rule for
 any string an LLM can read: tool names and docstrings, tool return values, the system
 message, the waking summary, delivered speech, the epilogue prompt.
+
+**The one exception is the framing block** (`core/framing.py`, `--framing`). It
+names the machinery on purpose, it is the variable under study, and it is recorded
+with the run. Everything around it — including the whole of the silent arm — is held
+to the rule below, and `tests/test_no_leakage.py` scans the silent arm precisely
+because that is what "no frame" has to mean.
 
 **Banned vocabulary in player-visible text:** game, player, agent, simulation, scenario,
 experiment, test, run, turn, round, LLM, model, AI, prompt, tool, token, reward, score,

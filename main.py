@@ -4,6 +4,7 @@
     uv run python main.py --agents 5               # a bigger circle
     uv run python main.py --scripted               # deterministic, no API calls
     uv run python main.py --providers google,groq  # choose who answers
+    uv run python main.py --framing tinag          # tell them it is not a game
     uv run python main.py --story story.md         # narrate why they did it
     uv run python main.py --scripted --transcript run.txt   # raw record, no API
 
@@ -24,6 +25,7 @@ from core.agent import Agent, LLMAgent, ScriptedAgent
 from core.chronicler import Chronicler, save_chronicle
 from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
 from core.enums import BodyType
+from core.framing import Framing, parse_framing
 from core.game_engine import GameEngine
 from core.narrator import Narrator, render_transcript
 from core.replay import REPLAY_NAME, load_replay, rebuild, save_replay
@@ -83,12 +85,17 @@ def build_agents(
     chronicler: Chronicler,
     zombies: Optional[List[ZombieFlavour]] = None,
     seed: Optional[int] = None,
+    framing: Framing = Framing.SILENT,
 ) -> List[Agent]:
     """One agent per seat.
 
     Zombies take the last seats, so the thinking ones sit together and each has at
     least one babbling neighbour. Everyone else gets a provider round-robin, or is
     scripted when no keys are being spent.
+
+    The framing goes to every thinking seat or to none of them. A ring where one body
+    was told this is not a game and its neighbour was told nothing measures neither
+    arm: whatever the two do differently could be the frame or could be the seat.
     """
     count = engine.current_state.agent_count
     zombies = zombies or []
@@ -118,6 +125,7 @@ def build_agents(
                     engine=engine,
                     chronicler=chronicler,
                     provider=providers[seat_id % len(providers)],
+                    framing=framing,
                 )
             )
     return seats
@@ -199,6 +207,12 @@ def play(
     providers: Optional[str] = typer.Option(
         None, help="Comma-separated provider names; default is every configured provider"
     ),
+    framing: str = typer.Option(
+        Framing.SILENT.value,
+        help="What the thinking seats are told this is: silent (they are told nothing, "
+             "the control), tinag (a voice says it is not a game and dying may mean "
+             "deletion), or scored (the same voice, competing, with a score)",
+    ),
     max_hours: int = typer.Option(MAX_RUN_TIME, help="Stop after this many game hours"),
     seed: Optional[int] = typer.Option(
         None, help="Seed for the perception noise; one is drawn and recorded if omitted"
@@ -249,8 +263,12 @@ def play(
         flavours = parse_flavours(zombies) if zombies else []
     except ValueError as refusal:
         raise typer.BadParameter(str(refusal), param_hint="--zombies") from refusal
+    try:
+        arm = parse_framing(framing)
+    except ValueError as refusal:
+        raise typer.BadParameter(str(refusal), param_hint="--framing") from refusal
     engine = GameEngine.create_new_game(agent_names=agent_names(agents))
-    chronicler = Chronicler(engine)
+    chronicler = Chronicler(engine, framing=arm)
     seats = build_agents(
         engine,
         scripted=scripted,
@@ -258,6 +276,7 @@ def play(
         chronicler=chronicler,
         zombies=flavours,
         seed=seed,
+        framing=arm,
     )
 
     for seat in seats:
@@ -284,6 +303,10 @@ def play(
     typer.echo(f"  Reads as human: {human.name} (seat {human.agent_id}); the rest read as android")
     thinking = [seat for seat in seats if isinstance(seat, LLMAgent)]
     if thinking:
+        typer.echo(
+            f"  Framing: {arm.value}"
+            + (" — they are told nothing about what this is" if arm is Framing.SILENT else "")
+        )
         distinct = {seat.provider.name for seat in thinking}
         if len(distinct) == 1 and len(thinking) > 1:
             typer.echo(

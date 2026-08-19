@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.enums import BodyType
+from core.framing import Framing
 
 
 class TurnKind(str, Enum):
@@ -176,6 +177,10 @@ class GameChronicle(BaseModel):
 
     agent_count: int = Field(ge=3)
     hours_played: int = Field(ge=0)
+    framing: str = Field(
+        default=Framing.SILENT.value,
+        description="Which framing the thinking seats played under: silent, tinag or scored",
+    )
     turns: Tuple[TurnRecord, ...] = Field(default=())
     deaths: Tuple[Death, ...] = Field(default=())
     unheard: Tuple[Unheard, ...] = Field(
