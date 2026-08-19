@@ -60,13 +60,15 @@
 
 ## 🎯 Medium Term (Features)
 
-- [ ] **Visualization**
-  - [ ] Web UI for game state
-  - [ ] Live event stream display
-  - [ ] Agent hunger bars
-  - [ ] Bush berry count visualization
-  - [ ] Turn timeline
-  - [ ] Message flow diagram
+- [x] **Visualization** — `web/`, `uv run python -m web` (never under a reloader:
+  a live game runs on a worker thread in this process)
+  - [x] Web UI for game state
+  - [x] Live event stream display (SSE; turns ride a `StreamingChronicler`,
+    since turn records never cross the event bus)
+  - [x] Agent hunger bars
+  - [x] Bush berry count visualization
+  - [x] Turn timeline (hour scrubber over per-hour rebuilds of the replay)
+  - [x] Message flow diagram (delivered arrows beside `unheard` crossed ones)
 
 - [ ] **Analytics**
   - [ ] Cooperation frequency metrics

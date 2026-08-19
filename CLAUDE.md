@@ -12,7 +12,7 @@ them all. Read in this order before changing anything:
 
 ```bash
 uv sync
-uv run pytest tests/                       # 236 tests, no API calls, no mocks
+uv run pytest tests/                       # 272 tests, no API calls, no mocks
 uv run python scripts/key_test.py          # are the keys live, does pacing hold
 uv run python main.py --scripted --agents 5
 uv run python main.py --agents 5 --zombies town_crazy   # one zombie, never more
@@ -20,7 +20,13 @@ uv run python main.py --agents 3 --providers google,groq
 uv run python main.py --agents 5 --framing tinag        # or scored; silent is the default
 uv run python scripts/replay.py runs/<stamp>      # rebuild a finished game, no keys
 uv run python scripts/replay.py runs/<stamp> --at 12
+uv run python -m web                       # the observatory, http://127.0.0.1:8000
 ```
+
+**Never run the web server under a reloader** (`uvicorn --reload` and the like):
+a live game plays on a worker thread inside the server process, and a reload
+kills it mid-hour with the run directory half-written. `web/__main__.py` never
+enables one; do not add one.
 
 Every run writes `runs/<UTC stamp>/` with `session.log`, `transcript.txt`,
 `chronicle.json` and `replay.json` unless `--no-record` says otherwise. `--out`
@@ -208,6 +214,33 @@ in that path touches game state.
 - A lost turn (failed model call) is recorded as a turn, marked `TURN LOST`, not dropped.
   A turn whose call failed *after* the agent acted is marked `CUT SHORT` and keeps every
   action above it — those really happened and the world kept them.
+
+## The observatory (web/)
+
+`uv run python -m web` — FastAPI + vanilla JS, researcher-facing: replay browser
+over `runs/`, live viewer, launch desk. It sits entirely on the puppeteer side and
+shows everything the players cannot know (misreads, unheard, true body states), so
+the leakage rules do not constrain what it *displays* — but nothing from it may
+flow back into a player-visible string. That is structural, not reviewed:
+`LaunchRequest` (`web/schemas.py`) admits no plain `str` field — every string-ish
+field is an Enum — and `tests/test_web_schema.py` fails the day one is added.
+
+- **`core/runner.py` is the shared game mechanic**: `prepare_game` → `run_prepared`
+  → `write_artifacts`. `main.py` narrates around those calls; the web worker thread
+  calls them silently. Nothing in runner prints.
+- **One game per process, enforced with a 409.** `prepare_game` seeds the
+  process-global RNG and attaches the session log to the root logger, and pacers/
+  ledger are per-provider singletons — the one-game lock in `LiveGameManager` is
+  what makes touching those globals safe, not tidiness.
+- **Turn records never cross the event bus**, so the live feed has two sources: a
+  `game.*` bus subscriber (state changes) and `StreamingChronicler` (reasoning,
+  tool calls, misreads). Both run on the game thread and only append under a lock;
+  any I/O there stalls the ring.
+- **The feed is append-only for the whole run** — unlike the bus's 255-slot ring —
+  so an SSE client connecting at hour 30 rebuilds the game from cursor 0.
+- **Hour scrubbing is one instrumented rebuild per run** (`rebuild(observer=...)`),
+  snapshotted per hour and LRU-cached. Run directories are never rewritten, so the
+  cache never goes stale.
 
 ## Gotchas learned here
 
