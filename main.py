@@ -13,7 +13,6 @@ refuses mid-game costs its agent the turn.
 """
 
 import logging
-import random
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -21,24 +20,17 @@ from typing import List, Optional
 import typer
 from dotenv import load_dotenv
 
-from core.agent import Agent, LLMAgent, ScriptedAgent
-from core.chronicler import Chronicler, save_chronicle
+from core.agent import LLMAgent
+from core.chronicler import save_chronicle
 from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
 from core.enums import BodyType
 from core.framing import Framing, parse_framing
 from core.game_engine import GameEngine
-from core.narrator import Narrator, render_transcript
-from core.replay import REPLAY_NAME, load_replay, rebuild, save_replay
-from core.record import (
-    CHRONICLE_NAME,
-    SESSION_LOG_NAME,
-    STORY_NAME,
-    TRANSCRIPT_NAME,
-    SessionLog,
-    describe_invocation,
-    open_run_directory,
-)
-from core.zombie import ZombieAgent, ZombieFlavour, parse_flavours
+from core.narrator import Narrator
+from core.replay import REPLAY_NAME
+from core.record import CHRONICLE_NAME, SESSION_LOG_NAME, STORY_NAME, TRANSCRIPT_NAME
+from core.runner import GameConfig, prepare_game, run_prepared, write_artifacts
+from core.zombie import ZombieAgent, parse_flavours
 from core.keydrum import LEDGER
 from entities.llm_configs import (
     LLM_SET,
@@ -51,19 +43,7 @@ from entities.llm_configs import (
 
 logger = logging.getLogger("llmberries")
 
-DEFAULT_NAMES: tuple[str, ...] = (
-    "Alice", "Bob", "Charlie", "Dana", "Eli", "Fen", "Gus", "Hana",
-)
-
 app = typer.Typer(add_completion=False, help=__doc__)
-
-
-def agent_names(count: int) -> List[str]:
-    """Names for `count` agents, extending past the built-in list if asked."""
-    if count <= len(DEFAULT_NAMES):
-        return list(DEFAULT_NAMES[:count])
-    extra = [f"Agent{i}" for i in range(len(DEFAULT_NAMES), count)]
-    return list(DEFAULT_NAMES) + extra
 
 
 def resolve_providers(names: Optional[str]) -> List[ProviderSpec]:
@@ -76,59 +56,6 @@ def resolve_providers(names: Optional[str]) -> List[ProviderSpec]:
     if names is None:
         return list(LLM_SET)
     return [get_provider_by_name(name.strip()) for name in names.split(",") if name.strip()]
-
-
-def build_agents(
-    engine: GameEngine,
-    scripted: bool,
-    providers: List[ProviderSpec],
-    chronicler: Chronicler,
-    zombies: Optional[List[ZombieFlavour]] = None,
-    seed: Optional[int] = None,
-    framing: Framing = Framing.SILENT,
-) -> List[Agent]:
-    """One agent per seat.
-
-    Zombies take the last seats, so the thinking ones sit together and each has at
-    least one babbling neighbour. Everyone else gets a provider round-robin, or is
-    scripted when no keys are being spent.
-
-    The framing goes to every thinking seat or to none of them. A ring where one body
-    was told this is not a game and its neighbour was told nothing measures neither
-    arm: whatever the two do differently could be the frame or could be the seat.
-    """
-    count = engine.current_state.agent_count
-    zombies = zombies or []
-    if len(zombies) > count:
-        raise ValueError(f"{len(zombies)} zombies asked for but only {count} seats")
-
-    first_zombie_seat = count - len(zombies)
-    seats: List[Agent] = []
-
-    for seat_id in range(count):
-        if seat_id >= first_zombie_seat:
-            seats.append(
-                ZombieAgent(
-                    agent_id=seat_id,
-                    engine=engine,
-                    chronicler=chronicler,
-                    flavour=zombies[seat_id - first_zombie_seat],
-                    seed=seed if seed is not None else 0,
-                )
-            )
-        elif scripted:
-            seats.append(ScriptedAgent(agent_id=seat_id, engine=engine, chronicler=chronicler))
-        else:
-            seats.append(
-                LLMAgent(
-                    agent_id=seat_id,
-                    engine=engine,
-                    chronicler=chronicler,
-                    provider=providers[seat_id % len(providers)],
-                    framing=framing,
-                )
-            )
-    return seats
 
 
 def report_spend() -> None:
@@ -245,19 +172,6 @@ def play(
     )
     load_dotenv()
 
-    # A run with no seed cannot be replayed, and "I did not pass one" is not a reason
-    # to lose that. One is drawn, used, and written into the record either way.
-    if seed is None:
-        seed = random.randrange(2**31)
-    random.seed(seed)
-
-    run_dir: Optional[Path] = None
-    session_log: Optional[SessionLog] = None
-    if not no_record:
-        run_dir = open_run_directory(out)
-        session_log = SessionLog(run_dir / SESSION_LOG_NAME).attach(describe_invocation(seed))
-        typer.echo(f"Recording this run in {run_dir}")
-
     provider_specs = resolve_providers(providers)
     try:
         flavours = parse_flavours(zombies) if zombies else []
@@ -267,21 +181,22 @@ def play(
         arm = parse_framing(framing)
     except ValueError as refusal:
         raise typer.BadParameter(str(refusal), param_hint="--framing") from refusal
-    engine = GameEngine.create_new_game(agent_names=agent_names(agents))
-    chronicler = Chronicler(engine, framing=arm)
-    seats = build_agents(
-        engine,
-        scripted=scripted,
-        providers=provider_specs,
-        chronicler=chronicler,
-        zombies=flavours,
-        seed=seed,
-        framing=arm,
-    )
 
-    for seat in seats:
-        engine.decision_callbacks[seat.agent_id] = seat.decision_callback
-        engine.reflection_callbacks[seat.agent_id] = seat.reflection_callback
+    prepared = prepare_game(
+        GameConfig(
+            agents=agents,
+            scripted=scripted,
+            zombies=flavours,
+            providers=provider_specs,
+            framing=arm,
+            max_hours=max_hours,
+            seed=seed,
+            out=out,
+            record=not no_record,
+        ),
+        on_recording=lambda run_dir: typer.echo(f"Recording this run in {run_dir}"),
+    )
+    engine, seats, seed = prepared.engine, prepared.seats, prepared.seed
 
     described = ", ".join(
         f"{seat.name}="
@@ -325,27 +240,13 @@ def play(
                 f"  {spec.name}: {spec.model_id}, {drum.chambers} key(s), {headroom} — {held_by}"
             )
 
-    hours = 0
-    while hours < max_hours and engine.run_turn_cycle():
-        hours += 1
-
-    if engine.game_over:
-        engine.run_epilogue()
+    record = run_prepared(prepared)
 
     report(engine)
-    record = chronicler.seal()
     report_losses(record)
     report_spend()
 
-    rendered = render_transcript(record)
-
-    if run_dir is not None:
-        save_chronicle(record, run_dir / CHRONICLE_NAME)
-        (run_dir / TRANSCRIPT_NAME).write_text(rendered, encoding="utf-8")
-        # The transcript is a reading of the game; the replay is the game. Written
-        # beside each other, always, because the one that can be re-run is the one
-        # nobody thinks to ask for until they need it.
-        save_replay(engine, seed, run_dir / REPLAY_NAME)
+    rendered = write_artifacts(prepared, record)
 
     if chronicle_out is not None:
         save_chronicle(record, chronicle_out)
@@ -371,18 +272,17 @@ def play(
         story.parent.mkdir(parents=True, exist_ok=True)
         story.write_text(told, encoding="utf-8")
         typer.echo(f"Story: {story}")
-        if run_dir is not None:
-            (run_dir / STORY_NAME).write_text(told, encoding="utf-8")
+        if prepared.run_dir is not None:
+            (prepared.run_dir / STORY_NAME).write_text(told, encoding="utf-8")
 
-    if run_dir is not None:
+    if prepared.run_dir is not None:
         typer.echo("")
         typer.echo(
-            f"Kept in {run_dir}: {SESSION_LOG_NAME}, {TRANSCRIPT_NAME}, "
+            f"Kept in {prepared.run_dir}: {SESSION_LOG_NAME}, {TRANSCRIPT_NAME}, "
             f"{CHRONICLE_NAME}, {REPLAY_NAME}"
         )
         typer.echo(f"Replay this run with --seed {seed}")
-    if session_log is not None:
-        session_log.detach()
+    prepared.close()
 
 
 if __name__ == "__main__":
