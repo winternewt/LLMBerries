@@ -1,0 +1,8 @@
+# Evidence from live runs travels through LFS. These are model transcripts and the
+# command histories that rebuild a game — they are read, replayed and diffed rarely,
+# and a session log runs to megabytes of HTTP chatter. story.md is deliberately not
+# here: it is the readable one, and it should render on GitHub.
+runs/**/session.log filter=lfs diff=lfs merge=lfs -text
+runs/**/transcript.txt filter=lfs diff=lfs merge=lfs -text
+runs/**/chronicle.json filter=lfs diff=lfs merge=lfs -text
+runs/**/replay.json filter=lfs diff=lfs merge=lfs -text
