@@ -291,6 +291,14 @@ class ScriptedAgent(Agent):
                 calls.append(
                     ToolCall(name="eat_berries", args={"count": str(available)}, result=result)
                 )
+        elif (self.engine.current_state.world_time + self.agent_id) % 2 == 0:
+            # Above the threshold it nibbles: one berry every other hour, staggered
+            # by seat — 0.5/hour on average, so hunger still declines (burn is 1/hour)
+            # but a short run is not a fasting ring where nothing visibly happens.
+            # Parity, not randomness, keeps the control arm deterministic.
+            if observation.bush_berries > 0:
+                result = self.eat_berries(1)
+                calls.append(ToolCall(name="eat_berries", args={"count": "1"}, result=result))
 
         result = self.choose_sleep_duration(self.sleep_hours)
         calls.append(

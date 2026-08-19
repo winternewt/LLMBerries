@@ -83,3 +83,15 @@ def test_an_unrecorded_game_touches_no_disk(tmp_path: Path) -> None:
     assert prepared.run_dir is None
     assert list(tmp_path.iterdir()) == []
     assert rendered, "the transcript still renders; it is just not kept"
+
+
+def test_scripted_agents_nibble_above_the_threshold(tmp_path: Path) -> None:
+    """One berry every other hour while still fed — a short demo is not a fasting
+    ring, and the pace is parity-staggered, not random, so it replays exactly."""
+    prepared = prepare_game(scripted_config(tmp_path, max_hours=6, record=False))
+    record = run_prepared(prepared)
+    prepared.close()
+
+    eaten = [summary.berries_eaten for summary in record.agents]
+    assert eaten == [3, 3, 3, 3], "0.5/hour average over 6 hours, every seat"
+    assert all(turn.hunger > 12 for turn in record.turns), "nobody crossed the meal threshold"
