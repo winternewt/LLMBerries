@@ -169,8 +169,15 @@ FOR each agent:
 ```
 
 #### Phase 6: Observations & Actions (Awake Agents Only)
+
+The awake seats are rotated by the hour rather than walked from seat 0, so first
+pick at the bush goes round the circle. Walking them in a fixed order handed seat 0
+the fullest bush every hour, and that alone decided the game — see the seating
+invariant in the repo root `CLAUDE.md`. Rotation is over the *awake* seats, not all of them:
+rotating over the dead hands the survivors uneven shares.
+
 ```
-FOR each agent (clockwise):
+FOR each awake agent (starting one seat later each hour):
   IF agent.body_state == AWAKE:
     
     # Generate observation
@@ -257,7 +264,7 @@ IF all agents ASLEEP or DEAD:
 └─────────────────────────────────────────────────────┘
                        ↓
 ┌─────────────────────────────────────────────────────┐
-│  Phase 6: Process Awake Agents (clockwise)          │
+│  Phase 6: Process Awake Agents (rotated by hour)    │
 │  ┌───────────────────────────────────────────────┐  │
 │  │  For each AWAKE agent:                        │  │
 │  │  1. Generate observation                      │  │

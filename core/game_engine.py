@@ -2,7 +2,7 @@
 Game Engine implementing the turn cycle with Command Pattern.
 
 This is the main orchestrator that manages the game loop according
-to the turn cycle specification in NEW_DESIGN.md.
+to the turn cycle specification in docs/DESIGN.md.
 
 Architecture:
 - Engine uses callback pattern to invoke agent decision-making
@@ -87,7 +87,7 @@ class GameEngine(BaseModel):
     - Event stream (for logging/UI updates)
     - Turn cycle phases (cleanup → checks → actions → time advance)
     
-    Turn Cycle (from NEW_DESIGN.md):
+    Turn Cycle (from docs/DESIGN.md):
     1. State cleanup (clear pending messages)
     2. Death check (hunger <= 0 → DEAD)
     3. Game over check (≤1 alive → end game)

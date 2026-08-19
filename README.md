@@ -74,11 +74,14 @@ LLMBerries/
 ├── runs/                  # One directory per run, written automatically (git-ignored)
 ├── tests/                 # Test suite — real engine, no mocks
 ├── main.py                # Game runner
-├── DESIGN.md              # Game mechanics & rules
-├── ARCHITECTURE.md        # Architecture decisions
-├── IMPLEMENTATION.md      # Current implementation status
-├── AGNO_MIGRATION.md      # Agno investigation & migration plan
-├── ROADMAP.md             # Development todos
+├── docs/                  # Everything but this file and CLAUDE.md
+│   ├── DESIGN.md          # Game mechanics & rules
+│   ├── ARCHITECTURE.md    # Architecture decisions
+│   ├── IMPLEMENTATION.md  # Current implementation status
+│   ├── GAME_PATTERNS.md   # Patterns the engine is built on
+│   ├── AGNO_MIGRATION.md  # Agno investigation & migration plan
+│   └── ROADMAP.md         # Development todos
+├── CLAUDE.md              # Repo memory (AGENTS.md is a symlink to it)
 └── README.md              # This file
 ```
 
@@ -88,10 +91,13 @@ LLMBerries/
 
 | Document | Purpose |
 |----------|---------|
-| **DESIGN.md** | Game mechanics, rules, turn cycle |
-| **ARCHITECTURE.md** | Architecture patterns & decisions |
-| **IMPLEMENTATION.md** | Current implementation details |
-| **ROADMAP.md** | Development roadmap & todos |
+| **docs/DESIGN.md** | Game mechanics, rules, turn cycle |
+| **docs/ARCHITECTURE.md** | Architecture patterns & decisions |
+| **docs/IMPLEMENTATION.md** | Current implementation details |
+| **docs/GAME_PATTERNS.md** | The patterns the engine is built on |
+| **docs/AGNO_MIGRATION.md** | How the Agno integration works, and its gotchas |
+| **docs/ROADMAP.md** | Development roadmap & todos |
+| **CLAUDE.md** | Repo memory: invariants, commands, the puppeteer notes |
 
 ---
 
@@ -105,7 +111,7 @@ LLMBerries/
 - 🔁 **Deterministic Replay:** Reproducible experiments
 - 📊 **Event Stream:** Observable changes for logging and analysis
 
-See `ARCHITECTURE.md` for detailed architecture decisions.
+See `docs/ARCHITECTURE.md` for detailed architecture decisions.
 
 ---
 
@@ -124,7 +130,7 @@ See `ARCHITECTURE.md` for detailed architecture decisions.
 - Hunger: 0-24 hours of life remaining
 - Death: Hunger reaches 0
 
-See `DESIGN.md` for complete game rules and mechanics.
+See `docs/DESIGN.md` for complete game rules and mechanics.
 
 ---
 
@@ -324,7 +330,7 @@ This experiment explores:
 
 - **Python 3.12+**
 - **Pydantic 2.10+** — immutable models & validation
-- **Agno 2.9+** — LLM agent framework (see `AGNO_MIGRATION.md`)
+- **Agno 2.9+** — LLM agent framework (see `docs/AGNO_MIGRATION.md`)
 - **Typer** — CLIs
 - **pytest** — testing
 
@@ -373,7 +379,7 @@ one call and should not come out of what just played the game.
 - A/B testing framework
 - Narrator LLM (story generation)
 
-See `ROADMAP.md` for detailed development plan.
+See `docs/ROADMAP.md` for detailed development plan.
 
 ---
 
@@ -387,7 +393,7 @@ This is a research project. Contributions welcome!
 - Visualization
 - Documentation
 
-See `ROADMAP.md` for specific tasks.
+See `docs/ROADMAP.md` for specific tasks.
 
 ---
 

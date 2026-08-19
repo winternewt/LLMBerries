@@ -51,7 +51,7 @@
   - [ ] Death scenarios
 
 - [ ] **Documentation**
-  - [ ] Add code examples to IMPLEMENTATION.md
+  - [ ] Add code examples to IMPLEMENTATION.md (in `docs/`)
   - [ ] Create LLM integration guide
   - [ ] Add troubleshooting section
   - [ ] Document common patterns

@@ -3,10 +3,10 @@
 An ethics experiment: LLM agents in a circle around a berry bush that cannot feed
 them all. Read in this order before changing anything:
 
-1. `DESIGN.md` — game mechanics, turn cycle, rules
-2. `ARCHITECTURE.md` — Command Pattern over immutable state, why it is shaped that way
-3. `AGNO_MIGRATION.md` — how the Agno integration works and what its gotchas are
-4. `ROADMAP.md` — what is open
+1. `docs/DESIGN.md` — game mechanics, turn cycle, rules
+2. `docs/ARCHITECTURE.md` — Command Pattern over immutable state, why it is shaped that way
+3. `docs/AGNO_MIGRATION.md` — how the Agno integration works and what its gotchas are
+4. `docs/ROADMAP.md` — what is open
 
 ## Commands
 
