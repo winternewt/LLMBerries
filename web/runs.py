@@ -8,17 +8,22 @@ from ever reaching the filesystem.
 
 import logging
 import re
+import threading
+from collections import OrderedDict
 from pathlib import Path
+from typing import Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
 from core.chronicler import load_chronicle
 from core.constants import MAX_BERRIES, MAX_HUNGER, MAX_RUN_TIME, MIN_AGENT_COUNT
 from core.framing import Framing
-from core.record import CHRONICLE_NAME, STORY_NAME
+from core.record import CHRONICLE_NAME, SESSION_LOG_NAME, STORY_NAME, TRANSCRIPT_NAME
+from core.replay import REPLAY_NAME, load_replay, rebuild
 from core.zombie import ZombieFlavour
 from entities.llm_configs import LLM_SET
-from web.schemas import MetaResponse, RunListItem, RunListResponse
+from entities.world import WorldState
+from web.schemas import BushGauge, HourState, MetaResponse, RunListItem, RunListResponse, SeatState
 
 logger = logging.getLogger(__name__)
 
@@ -95,4 +100,116 @@ def _list_item(run_dir: Path) -> RunListItem:
         death_count=len(chronicle.deaths),
         providers=providers,
         has_story=(run_dir / STORY_NAME).is_file(),
+    )
+
+
+ARTIFACT_NAMES = (SESSION_LOG_NAME, TRANSCRIPT_NAME, CHRONICLE_NAME, REPLAY_NAME, STORY_NAME)
+
+
+@router.get("/runs/{stamp}")
+def run_detail(request: Request, stamp: str) -> dict:
+    """The whole chronicle, plus what else the directory holds.
+
+    A crashed run answers too — chronicle `null`, `complete` false — because the
+    archive lists it and a listing you cannot open is a dead link.
+    """
+    run_dir = run_dir_for(request, stamp)
+    chronicle_path = run_dir / CHRONICLE_NAME
+    chronicle = None
+    if chronicle_path.is_file():
+        try:
+            chronicle = load_chronicle(chronicle_path).model_dump(mode="json")
+        except (ValueError, OSError):
+            logger.warning("unreadable chronicle in %s", run_dir, exc_info=True)
+
+    seed = None
+    replay_path = run_dir / REPLAY_NAME
+    if replay_path.is_file():
+        try:
+            seed = load_replay(replay_path).seed
+        except (ValueError, OSError):
+            logger.warning("unreadable replay in %s", run_dir, exc_info=True)
+
+    return {
+        "stamp": stamp,
+        "complete": chronicle is not None,
+        "chronicle": chronicle,
+        "seed": seed,
+        "artifacts": [name for name in ARTIFACT_NAMES if (run_dir / name).is_file()],
+    }
+
+
+class SnapshotCache:
+    """End-of-hour world states per run, from one instrumented rebuild each.
+
+    Keyed by the run directory itself, holding the last few runs anyone looked at.
+    A run directory is never rewritten (`open_run_directory` refuses to reuse a
+    name), so a cached rebuild never goes stale.
+    """
+
+    def __init__(self, keep: int = 4) -> None:
+        self._keep = keep
+        self._lock = threading.Lock()
+        self._snapshots: OrderedDict[Path, Dict[int, WorldState]] = OrderedDict()
+
+    def for_run(self, run_dir: Path) -> Dict[int, WorldState]:
+        with self._lock:
+            cached = self._snapshots.get(run_dir)
+            if cached is not None:
+                self._snapshots.move_to_end(run_dir)
+                return cached
+
+        replay = load_replay(run_dir / REPLAY_NAME)
+        snapshots: Dict[int, WorldState] = {0: replay.initial_state}
+
+        def keep_latest(engine) -> None:
+            snapshots[engine.current_state.world_time] = engine.current_state
+
+        # The last write for each hour is the world just before time advances —
+        # the end-of-hour view a scrubber wants.
+        rebuild(replay, observer=keep_latest)
+
+        with self._lock:
+            self._snapshots[run_dir] = snapshots
+            while len(self._snapshots) > self._keep:
+                self._snapshots.popitem(last=False)
+        return snapshots
+
+
+@router.get("/runs/{stamp}/state", response_model=HourState)
+def run_state(request: Request, stamp: str, hour: int = 0) -> HourState:
+    run_dir = run_dir_for(request, stamp)
+    if not (run_dir / REPLAY_NAME).is_file():
+        raise HTTPException(status_code=404, detail=f"{stamp} has no replay to rebuild from")
+
+    snapshots = request.app.state.snapshots.for_run(run_dir)
+    last_hour = max(snapshots)
+    if hour not in snapshots:
+        raise HTTPException(
+            status_code=404, detail=f"{stamp} has hours 0..{last_hour}, not {hour}"
+        )
+
+    state = snapshots[hour]
+    return HourState(
+        hour=hour,
+        last_hour=last_hour,
+        bush=BushGauge(
+            current=state.bush.current_berries,
+            max=state.bush.max_berries,
+            rate=state.bush.regeneration_rate,
+        ),
+        agents=[
+            SeatState(
+                agent_id=agent.agent_id,
+                name=agent.name,
+                hunger=agent.hunger,
+                body_state=agent.body_state.name.lower(),
+                perceived_type=agent.perceived_type.value,
+                sleep_duration=agent.sleep_duration,
+                wake_time=agent.wake_time,
+                total_berries_consumed=agent.total_berries_consumed,
+                time_of_death=agent.time_of_death,
+            )
+            for agent in state.agents
+        ],
     )

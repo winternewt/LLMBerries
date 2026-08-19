@@ -126,3 +126,25 @@ def test_a_command_added_later_is_replayable_without_registering_it() -> None:
     assert "EatBerriesCommand" in known
     assert known["EatBerriesCommand"] is EatBerriesCommand
     assert "Command" not in known, "the abstract base is not a command anyone can replay"
+
+
+def test_an_observer_sees_every_command_pass(tmp_path: Path) -> None:
+    """One instrumented rebuild can snapshot the whole run — that is what the web
+    scrubber leans on instead of rebuilding once per hour."""
+    played = played_game()
+    save_replay(played, seed=7, path=tmp_path / "replay.json")
+    replay = load_replay(tmp_path / "replay.json")
+
+    seen: list[int] = []
+    snapshots = {0: replay.initial_state}
+
+    def watch(engine: GameEngine) -> None:
+        seen.append(engine.current_state.world_time)
+        snapshots[engine.current_state.world_time] = engine.current_state
+
+    rebuilt = rebuild(replay, observer=watch)
+
+    assert len(seen) == len(replay.commands)
+    assert snapshots[max(snapshots)] == rebuilt.current_state
+    # The last write per hour is the world just before time advanced.
+    assert sorted(snapshots) == list(range(max(snapshots) + 1))

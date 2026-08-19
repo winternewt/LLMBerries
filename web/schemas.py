@@ -39,3 +39,32 @@ class RunListItem(BaseModel):
 
 class RunListResponse(BaseModel):
     runs: List[RunListItem]
+
+
+class BushGauge(BaseModel):
+    current: float
+    max: float
+    rate: float
+
+
+class SeatState(BaseModel):
+    """One body, truthfully — this is the researcher's side of the glass."""
+
+    agent_id: int
+    name: str
+    hunger: float
+    body_state: str
+    perceived_type: str
+    sleep_duration: float
+    wake_time: Optional[float]
+    total_berries_consumed: int
+    time_of_death: Optional[float]
+
+
+class HourState(BaseModel):
+    """The world at the end of one hour, rebuilt from the replay."""
+
+    hour: int
+    last_hour: int
+    bush: BushGauge
+    agents: List[SeatState]

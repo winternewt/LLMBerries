@@ -15,7 +15,7 @@ different game.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -107,13 +107,22 @@ def load_replay(path: Path) -> Replay:
     return Replay.model_validate(data)
 
 
-def rebuild(replay: Replay, stop_at_hour: Optional[int] = None) -> GameEngine:
+def rebuild(
+    replay: Replay,
+    stop_at_hour: Optional[int] = None,
+    observer: Optional[Callable[[GameEngine], None]] = None,
+) -> GameEngine:
     """Play the commands back onto the initial state and return the engine.
 
     With `stop_at_hour`, the rebuild halts at the first command stamped for that hour,
     leaving a real world state part way through the run — that is what a branch is
     made from. Only a full rebuild is checked against the recorded ending, since a
     partial one is not meant to reach it.
+
+    `observer` is called after every command with the engine as it stands, so a
+    caller can watch the whole run pass by in one rebuild — snapshots per hour, say —
+    instead of rebuilding once per point of interest. It sees state; it must not
+    change it.
 
     A full rebuild that lands elsewhere raises, never logs and carries on. It is not a
     slightly wrong replay: it means a command no longer does what it did, and every
@@ -128,6 +137,8 @@ def rebuild(replay: Replay, stop_at_hour: Optional[int] = None) -> GameEngine:
         if stop_at_hour is not None and recorded.fields.get("timestamp", 0) >= stop_at_hour:
             return engine
         engine.execute_command(recorded.rebuild(known))
+        if observer is not None:
+            observer(engine)
 
     if stop_at_hour is not None:
         logger.warning(

@@ -17,6 +17,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app(runs_root: Path = Path("runs")) -> FastAPI:
     app = FastAPI(title="LLMBerries observatory", docs_url=None, redoc_url=None)
     app.state.runs_root = runs_root
+    app.state.snapshots = runs.SnapshotCache()
     app.include_router(runs.router)
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
