@@ -5,9 +5,23 @@ here may carry free text into the game — every string field an outsider can se
 is an Enum, so a player-visible sentence cannot enter through this door.
 """
 
+from enum import Enum
+from pathlib import Path
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from core.constants import MAX_RUN_TIME, MIN_AGENT_COUNT
+from core.framing import Framing
+from core.runner import GameConfig
+from core.zombie import ZombieFlavour
+from entities.llm_configs import LLM_SET, get_provider_by_name
+
+# Only names the key ring knows. Built from LLM_SET so a provider added there is
+# offerable here the same day, and a name not on the ring cannot be asked for.
+ProviderName = Enum(  # type: ignore[misc]
+    "ProviderName", {spec.name: spec.name for spec in LLM_SET}, type=str
+)
 
 
 class MetaResponse(BaseModel):
@@ -68,3 +82,43 @@ class HourState(BaseModel):
     last_hour: int
     bush: BushGauge
     agents: List[SeatState]
+
+
+class LaunchRequest(BaseModel):
+    """A game asked for from the browser. Closed vocabulary, no free text.
+
+    Every string-typed field is an Enum on purpose — this schema is the only door
+    from the outside into a game, and nothing that comes through it may ever land
+    in a string a player reads. `tests/test_web_schema.py` holds this shut.
+    """
+
+    agents: int = Field(ge=MIN_AGENT_COUNT, le=8)
+    scripted: bool = False
+    zombie: Optional[ZombieFlavour] = None
+    providers: Optional[List[ProviderName]] = None
+    framing: Framing = Framing.SILENT
+    max_hours: int = Field(default=24, ge=1, le=MAX_RUN_TIME)
+    seed: Optional[int] = None
+    # Researcher-side pacing so a scripted demo is watchable; the ring never
+    # experiences it.
+    hour_delay: float = Field(default=0.0, ge=0.0, le=10.0)
+    record: bool = True
+
+    def to_config(self, runs_root: Path) -> GameConfig:
+        specs = (
+            [get_provider_by_name(name.value) for name in self.providers]
+            if self.providers
+            else list(LLM_SET)
+        )
+        return GameConfig(
+            agents=self.agents,
+            scripted=self.scripted,
+            zombies=[self.zombie] if self.zombie is not None else [],
+            providers=specs,
+            framing=self.framing,
+            max_hours=self.max_hours,
+            seed=self.seed,
+            out=runs_root,
+            record=self.record,
+            hour_delay=self.hour_delay,
+        )
